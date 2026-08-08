@@ -41,6 +41,29 @@ enum SprintState {
   COMPLETED
 }
 
+enum ActivityType {
+  ISSUE_CREATED
+  ISSUE_UPDATED
+  ISSUE_MOVED
+  ISSUE_ASSIGNED
+  ISSUE_PRIORITY_CHANGED
+  ISSUE_COMMENTED
+  ISSUE_LINKED
+  SPRINT_ISSUE_ADDED
+  SPRINT_ISSUE_REMOVED
+  BRANCH_CREATED
+  PR_OPENED
+  PR_MERGED
+  CI_STATUS
+}
+
+enum NotificationType {
+  ASSIGNED
+  MENTIONED
+  COMMENTED
+  STATE_CHANGED
+}
+
 // User model: Local mirror keyed by clerkId (identity managed by Clerk via webhook)
 model User {
   id              String            @id @default(uuid()) @db.Uuid
@@ -59,6 +82,10 @@ model User {
   projectMembers   ProjectMember[]
   issuesAssigned   Issue[]          @relation("IssueAssignee")
   issuesCreated    Issue[]          @relation("IssueCreator")
+  comments         Comment[]
+  activity         Activity[]
+  notifications    Notification[]   @relation("NotificationUser")
+  actionsTriggered Notification[]   @relation("NotificationActor")
 
   @@index([email])
   @@index([clerkId])
@@ -66,15 +93,16 @@ model User {
 
 // Workspace: Topmost tenancy boundary
 model Workspace {
-  id          String            @id @default(uuid()) @db.Uuid
-  name        String
-  slug        String            @unique
-  deletedAt   DateTime?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  id            String            @id @default(uuid()) @db.Uuid
+  name          String
+  slug          String            @unique
+  deletedAt     DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
-  members     WorkspaceMember[]
-  projects    Project[]
+  members       WorkspaceMember[]
+  projects      Project[]
+  notifications Notification[]
 
   @@index([slug])
 }
@@ -114,6 +142,8 @@ model Project {
   members     ProjectMember[]
   issues      Issue[]
   statuses    IssueStatus[]
+  labels      IssueLabel[]
+  sprints     Sprint[]
 
   @@unique([workspaceId, slug])
   @@unique([workspaceId, key])
@@ -144,8 +174,10 @@ model IssueStatus {
   projectId String          @db.Uuid
   name      String
   kind      IssueStatusKind
+  color     String          @default("gray")
   position  Float
   isDefault Boolean         @default(false)
+  deletedAt DateTime?
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
 
@@ -154,6 +186,52 @@ model IssueStatus {
 
   @@unique([projectId, name])
   @@index([projectId, position])
+}
+
+// IssueLabel: Scoped per-project with palette key
+model IssueLabel {
+  id          String   @id @default(uuid()) @db.Uuid
+  projectId   String   @db.Uuid
+  name        String
+  color       String   // palette key
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issues      IssueLabelAssignment[]
+
+  @@unique([projectId, name])
+}
+
+model IssueLabelAssignment {
+  issueId String @db.Uuid
+  labelId String @db.Uuid
+
+  issue   Issue      @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  label   IssueLabel @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([issueId, labelId])
+  @@index([labelId])
+}
+
+// Sprint: Time-boxed iteration
+model Sprint {
+  id        String      @id @default(uuid()) @db.Uuid
+  projectId String      @db.Uuid
+  name      String
+  goal      String?
+  state     SprintState @default(PLANNED)
+  startDate DateTime
+  endDate   DateTime
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issues    Issue[]
+
+  @@index([projectId, state])
+  @@index([projectId, startDate])
 }
 
 // Issue: Atomic work item
@@ -168,6 +246,7 @@ model Issue {
   sortOrder   Float
   estimate    Int?
   dueDate     DateTime?
+  sprintId    String?       @db.Uuid
   assigneeId  String?       @db.Uuid
   createdById String        @db.Uuid
   deletedAt   DateTime?
@@ -176,11 +255,66 @@ model Issue {
 
   project     Project       @relation(fields: [projectId], references: [id], onDelete: Restrict)
   status      IssueStatus   @relation(fields: [statusId], references: [id], onDelete: Restrict)
+  sprint      Sprint?       @relation(fields: [sprintId], references: [id], onDelete: SetNull)
   assignee    User?         @relation("IssueAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   createdBy   User          @relation("IssueCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  comments    Comment[]
+  labels      IssueLabelAssignment[]
+  activity    Activity[]
 
   @@unique([projectId, number])
   @@index([projectId, statusId])
+  @@index([projectId, sprintId])
   @@index([assigneeId])
   @@index([sortOrder])
+}
+
+// Comment: Flat issue comments
+model Comment {
+  id        String    @id @default(uuid()) @db.Uuid
+  issueId   String    @db.Uuid
+  userId    String    @db.Uuid
+  body      String    // markdown
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  issue     Issue     @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([issueId, createdAt])
+}
+
+// Activity: Append-only audit and event log
+model Activity {
+  id        String       @id @default(uuid()) @db.Uuid
+  issueId   String       @db.Uuid
+  actorId   String?      @db.Uuid
+  type      ActivityType
+  payload   Json
+  createdAt DateTime     @default(now())
+
+  issue     Issue        @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  actor     User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([issueId, createdAt])
+}
+
+// Notification: User inbox
+model Notification {
+  id          String           @id @default(uuid()) @db.Uuid
+  userId      String           @db.Uuid
+  workspaceId String           @db.Uuid
+  type        NotificationType
+  issueId     String?          @db.Uuid
+  actorId     String?          @db.Uuid
+  readAt      DateTime?
+  createdAt   DateTime         @default(now())
+
+  user        User             @relation("NotificationUser", fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor       User?            @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
 }
