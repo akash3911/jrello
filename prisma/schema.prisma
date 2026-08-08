@@ -1,10 +1,19 @@
+// Prisma 7 Schema for Jrello
+// PostgreSQL 15 + PrismaPg Driver Adapter
+// Design system: ADR-0001 through ADR-0008
+
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
   provider = "postgresql"
 }
+
+// --------------------------------------------------------
+// Enums
+// --------------------------------------------------------
 
 enum WorkspaceRole {
   OWNER
@@ -18,14 +27,6 @@ enum ProjectRole {
   VIEWER
 }
 
-enum IssuePriority {
-  NONE
-  LOW
-  MEDIUM
-  HIGH
-  URGENT
-}
-
 enum IssueStatusKind {
   BACKLOG
   TODO
@@ -33,6 +34,14 @@ enum IssueStatusKind {
   IN_REVIEW
   DONE
   CANCELED
+}
+
+enum IssuePriority {
+  URGENT
+  HIGH
+  MEDIUM
+  LOW
+  NONE
 }
 
 enum SprintState {
@@ -43,77 +52,83 @@ enum SprintState {
 
 enum ActivityType {
   ISSUE_CREATED
-  ISSUE_UPDATED
-  ISSUE_MOVED
-  ISSUE_ASSIGNED
-  ISSUE_PRIORITY_CHANGED
-  ISSUE_COMMENTED
-  ISSUE_LINKED
+  STATUS_CHANGED
+  PRIORITY_CHANGED
+  TITLE_CHANGED
+  DESCRIPTION_CHANGED
+  ASSIGNEE_CHANGED
+  ESTIMATE_CHANGED
+  DUE_DATE_CHANGED
   SPRINT_ISSUE_ADDED
   SPRINT_ISSUE_REMOVED
+  LABEL_ADDED
+  LABEL_REMOVED
+  COMMENT_ADDED
   BRANCH_CREATED
   PR_OPENED
   PR_MERGED
+  PR_CLOSED
   CI_STATUS
+  ISSUE_DELETED
 }
 
 enum NotificationType {
   ASSIGNED
   MENTIONED
   COMMENTED
-  STATE_CHANGED
+  STATUS_CHANGED
 }
 
-// User model: Local mirror keyed by clerkId (identity managed by Clerk via webhook)
+// --------------------------------------------------------
+// Models
+// --------------------------------------------------------
+
+// User: Mirrored from Clerk via Webhooks (keyed by clerkId)
 model User {
-  id              String            @id @default(uuid()) @db.Uuid
-  clerkId         String            @unique
-  email           String            @unique
-  emailVerifiedAt DateTime?
-  name            String?
-  avatarUrl       String?
-  githubId        String?           @unique
-  githubLogin     String?
-  deletedAt       DateTime?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  id                    String            @id @default(uuid()) @db.Uuid
+  clerkId               String            @unique
+  email                 String            @unique
+  name                  String?
+  avatarUrl             String?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
 
-  workspaceMembers WorkspaceMember[]
-  projectMembers   ProjectMember[]
-  issuesAssigned   Issue[]          @relation("IssueAssignee")
-  issuesCreated    Issue[]          @relation("IssueCreator")
-  comments         Comment[]
-  activity         Activity[]
-  notifications    Notification[]   @relation("NotificationUser")
-  actionsTriggered Notification[]   @relation("NotificationActor")
+  workspaceMemberships  WorkspaceMember[]
+  projectMemberships    ProjectMember[]
+  assignedIssues        Issue[]           @relation("IssueAssignee")
+  createdIssues         Issue[]           @relation("IssueCreator")
+  comments              Comment[]
+  activities            Activity[]
+  notifications         Notification[]    @relation("NotificationUser")
+  actorNotifications    Notification[]    @relation("NotificationActor")
 
-  @@index([email])
   @@index([clerkId])
+  @@index([email])
 }
 
-// Workspace: Topmost tenancy boundary
+// Workspace: Top-level tenant
 model Workspace {
-  id            String            @id @default(uuid()) @db.Uuid
-  name          String
-  slug          String            @unique
-  deletedAt     DateTime?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  id                    String            @id @default(uuid()) @db.Uuid
+  name                  String
+  slug                  String            @unique
+  description           String?
+  logoUrl               String?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
 
-  members       WorkspaceMember[]
-  projects      Project[]
-  notifications Notification[]
+  members               WorkspaceMember[]
+  projects              Project[]
+  notifications         Notification[]
+  githubInstallations   GitHubInstallation[]
 
   @@index([slug])
 }
 
-// WorkspaceMember: Role inside a workspace
 model WorkspaceMember {
   id          String        @id @default(uuid()) @db.Uuid
   workspaceId String        @db.Uuid
   userId      String        @db.Uuid
   role        WorkspaceRole @default(MEMBER)
-  joinedAt    DateTime      @default(now())
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
@@ -122,41 +137,39 @@ model WorkspaceMember {
 
   @@unique([workspaceId, userId])
   @@index([userId])
-  @@index([workspaceId])
 }
 
-// Project: Unit of work inside a workspace
+// Project: Planning container scoped to workspace
 model Project {
   id          String          @id @default(uuid()) @db.Uuid
   workspaceId String          @db.Uuid
   name        String
-  slug        String
-  key         String          // issue prefix, e.g. JREL
+  key         String          // e.g. "JREL", uppercase 2-10 chars
+  slug        String          // URL segment
   description String?
-  icon        String?
-  deletedAt   DateTime?
+  isPrivate   Boolean         @default(false)
+  issueSeq    Int             @default(100) // Transactional counter
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   members     ProjectMember[]
-  issues      Issue[]
   statuses    IssueStatus[]
   labels      IssueLabel[]
   sprints     Sprint[]
+  issues      Issue[]
+  githubRepos GitHubRepo[]
 
-  @@unique([workspaceId, slug])
   @@unique([workspaceId, key])
+  @@unique([workspaceId, slug])
   @@index([workspaceId])
 }
 
-// ProjectMember: Per-project membership
 model ProjectMember {
   id        String      @id @default(uuid()) @db.Uuid
   projectId String      @db.Uuid
   userId    String      @db.Uuid
   role      ProjectRole @default(MEMBER)
-  joinedAt  DateTime    @default(now())
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
@@ -165,17 +178,15 @@ model ProjectMember {
 
   @@unique([projectId, userId])
   @@index([userId])
-  @@index([projectId])
 }
 
-// IssueStatus: Columns of the project board
+// IssueStatus: Custom board workflow columns per project
 model IssueStatus {
   id        String          @id @default(uuid()) @db.Uuid
   projectId String          @db.Uuid
   name      String
   kind      IssueStatusKind
-  color     String          @default("gray")
-  position  Float
+  position  Int             // Column sort order
   isDefault Boolean         @default(false)
   deletedAt DateTime?
   createdAt DateTime        @default(now())
@@ -253,14 +264,16 @@ model Issue {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  project     Project       @relation(fields: [projectId], references: [id], onDelete: Restrict)
-  status      IssueStatus   @relation(fields: [statusId], references: [id], onDelete: Restrict)
-  sprint      Sprint?       @relation(fields: [sprintId], references: [id], onDelete: SetNull)
-  assignee    User?         @relation("IssueAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  createdBy   User          @relation("IssueCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  comments    Comment[]
-  labels      IssueLabelAssignment[]
-  activity    Activity[]
+  project      Project                 @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  status       IssueStatus             @relation(fields: [statusId], references: [id], onDelete: Restrict)
+  sprint       Sprint?                 @relation(fields: [sprintId], references: [id], onDelete: SetNull)
+  assignee     User?                   @relation("IssueAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy    User                    @relation("IssueCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  comments     Comment[]
+  labels       IssueLabelAssignment[]
+  activity     Activity[]
+  branches     IssueBranch[]
+  pullRequests IssuePullRequest[]
 
   @@unique([projectId, number])
   @@index([projectId, statusId])
@@ -317,4 +330,106 @@ model Notification {
 
   @@index([userId, readAt])
   @@index([userId, createdAt])
+}
+
+// --------------------------------------------------------
+// GitHub Integration (Phase 7+)
+// --------------------------------------------------------
+
+model GitHubInstallation {
+  id             String       @id @default(uuid()) @db.Uuid
+  workspaceId    String       @db.Uuid
+  installationId Int
+  accountLogin   String
+  accountType    String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  repos          GitHubRepo[]
+
+  @@unique([workspaceId, installationId])
+  @@index([installationId])
+}
+
+model GitHubRepo {
+  id             String             @id @default(uuid()) @db.Uuid
+  installationId String             @db.Uuid
+  repoId         Int
+  fullName       String
+  defaultBranch  String             @default("main")
+  projectId      String?            @db.Uuid
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  installation   GitHubInstallation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  project        Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  branches       IssueBranch[]
+  pullRequests   IssuePullRequest[]
+
+  @@unique([installationId, repoId])
+  @@index([projectId])
+  @@index([fullName])
+}
+
+model IssueBranch {
+  id        String     @id @default(uuid()) @db.Uuid
+  issueId   String     @db.Uuid
+  repoId    String     @db.Uuid
+  name      String
+  headSha   String?
+  createdAt DateTime   @default(now())
+
+  issue     Issue      @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  repo      GitHubRepo @relation(fields: [repoId], references: [id], onDelete: Restrict)
+
+  @@unique([repoId, name])
+  @@index([issueId])
+}
+
+model IssuePullRequest {
+  id             String       @id @default(uuid()) @db.Uuid
+  issueId        String       @db.Uuid
+  repoId         String       @db.Uuid
+  number         Int
+  title          String
+  state          String       // "open" | "closed"
+  merged         Boolean      @default(false)
+  mergeableState String?
+  headSha        String?
+  url            String
+  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime     @default(now())
+
+  issue          Issue        @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  repo           GitHubRepo   @relation(fields: [repoId], references: [id], onDelete: Restrict)
+  checks         IssueCheck[]
+
+  @@unique([repoId, number])
+  @@index([issueId])
+}
+
+model IssueCheck {
+  id            String           @id @default(uuid()) @db.Uuid
+  pullRequestId String           @db.Uuid
+  name          String
+  status        String           // "queued" | "in_progress" | "completed"
+  conclusion    String?          // "success" | "failure" | "neutral"
+  detailsUrl    String?
+  completedAt   DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  pullRequest   IssuePullRequest @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+
+  @@index([pullRequestId])
+}
+
+model GitHubDelivery {
+  id         String   @id @default(uuid()) @db.Uuid
+  deliveryId String   @unique
+  eventType  String
+  receivedAt DateTime @default(now())
+
+  @@index([deliveryId])
 }
