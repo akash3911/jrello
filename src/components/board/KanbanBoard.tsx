@@ -8,6 +8,8 @@ import { type StatusKind } from "@/components/ui/status-badge";
 import { KanbanColumn } from "./KanbanColumn";
 import { KanbanIssueItem } from "./KanbanCard";
 import { IssueDetailPanel, type IssueItem } from "./IssueDetailPanel";
+import { PresenceAvatars } from "./PresenceAvatars";
+import { useProjectRealtime } from "@/lib/realtime/client";
 
 export interface StatusColumnData {
   id: string;
@@ -61,6 +63,39 @@ export function KanbanBoard({
     setToastMessage({ text, type });
     setTimeout(() => setToastMessage(null), 3000);
   };
+
+  // Real-time integration (Socket.IO + Presence)
+  const { viewers, lastLiveMessage } = useProjectRealtime({
+    projectId: projectKey,
+    currentUser,
+    onIssueMoved: (data) => {
+      setIssues((prev) =>
+        prev.map((i) =>
+          i.id === data.issueId ? { ...i, status: data.toStatus, updatedAt: "Just now" } : i
+        )
+      );
+      showToast(`${data.actorName} moved card to ${data.toStatus}`);
+    },
+    onIssueCreated: (newIssue) => {
+      const card: KanbanIssueItem = {
+        id: newIssue.id,
+        key: `${projectKey}-${newIssue.number}`,
+        title: newIssue.title,
+        description: newIssue.description || "",
+        status: newIssue.statusKind,
+        priority: newIssue.priority,
+        assignee: { name: "Team member", initials: "TM" },
+        labels: ["realtime"],
+        branchName: `feat/${projectKey.toLowerCase()}-${newIssue.number}`,
+        commentsCount: 0,
+        createdAt: "Just now",
+        updatedAt: "Just now",
+        estimate: newIssue.estimate ? `${newIssue.estimate} pts` : "3 pts",
+      };
+      setIssues((prev) => [card, ...prev]);
+      showToast(`New issue #${newIssue.number} created`);
+    },
+  });
 
   // Filtered issues calculation
   const filteredIssues = React.useMemo(() => {
@@ -263,7 +298,7 @@ export function KanbanBoard({
         </div>
       )}
 
-      {/* Project Header Bar */}
+      {/* Project Header Bar with Live Presence Avatars */}
       <div className="flex flex-col gap-3 px-6 py-4 border-b border-[var(--border)] bg-[var(--bg-base)]">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -284,6 +319,9 @@ export function KanbanBoard({
               </p>
             </div>
           </div>
+
+          {/* Real-time Presence Avatars & Announcements */}
+          <PresenceAvatars viewers={viewers} liveAnnouncement={lastLiveMessage} />
         </div>
 
         {/* Filters, Search, and Keyboard Shortcuts Hint */}
