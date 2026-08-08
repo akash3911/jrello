@@ -1,0 +1,208 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    /* Neutral Scale */
+    --bg-base: #ffffff;
+    --bg-raised: #fafafa;
+    --bg-overlay: #f4f4f5;
+    --border: #e4e4e7;
+    --border-strong: #d4d4d8;
+    --text: #18181b;
+    --text-muted: #52525b;
+    --text-subtle: #71717a;
+
+    /* Accent (Teal-Cyan) */
+    --accent: #0e7490;
+    --accent-hover: #0c6a82;
+    --accent-fg: #ffffff;
+    --accent-soft: #ecfeff;
+
+    /* Semantic */
+    --success: #16a34a;
+    --success-soft: #f0fdf4;
+    --success-fg: #15803d;
+    --warning: #ca8a04;
+    --warning-soft: #fefce8;
+    --warning-fg: #a16207;
+    --danger: #dc2626;
+    --danger-soft: #fef2f2;
+    --danger-fg: #b91c1c;
+    --info: #2563eb;
+    --info-soft: #eff6ff;
+    --info-fg: #1d4ed8;
+
+    /* Priority / 8-hue Palette */
+    --palette-gray: #71717a;
+    --palette-gray-soft: #f4f4f5;
+    --palette-red: #dc2626;
+    --palette-red-soft: #fef2f2;
+    --palette-orange: #ea580c;
+    --palette-orange-soft: #fff7ed;
+    --palette-yellow: #ca8a04;
+    --palette-yellow-soft: #fefce8;
+    --palette-green: #16a34a;
+    --palette-green-soft: #f0fdf4;
+    --palette-teal: #0e7490;
+    --palette-teal-soft: #ecfeff;
+    --palette-blue: #2563eb;
+    --palette-blue-soft: #eff6ff;
+    --palette-purple: #9333ea;
+    --palette-purple-soft: #faf5ff;
+
+    /* Radius */
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --radius-full: 9999px;
+
+    /* Shadows (Subtle, Dark-First) */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.16);
+
+    /* Motion */
+    --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-modal: cubic-bezier(0.16, 1, 0.3, 1);
+    --duration-instant: 0ms;
+    --duration-fast: 90ms;
+    --duration-normal: 160ms;
+    --duration-slow: 240ms;
+  }
+
+  .dark {
+    /* Neutral Scale (Dark Mode is Primary) */
+    --bg-base: #0a0a0b;
+    --bg-raised: #111113;
+    --bg-overlay: #17181a;
+    --border: #26272a;
+    --border-strong: #34363a;
+    --text: #ededee;
+    --text-muted: #9b9ba3;
+    --text-subtle: #6b6c73;
+
+    /* Accent (Teal-Cyan on Dark) */
+    --accent: #22d3ee;
+    --accent-hover: #67e8f9;
+    --accent-fg: #04141a;
+    --accent-soft: #082a33;
+
+    /* Semantic (Dark Mode) */
+    --success: #4ade80;
+    --success-soft: #052e16;
+    --success-fg: #86efac;
+    --warning: #facc15;
+    --warning-soft: #3a2a02;
+    --warning-fg: #fde047;
+    --danger: #f87171;
+    --danger-soft: #380c0c;
+    --danger-fg: #fca5a5;
+    --info: #60a5fa;
+    --info-soft: #0c2340;
+    --info-fg: #93c5fd;
+
+    /* Priority / 8-hue Palette (Dark Mode) */
+    --palette-gray: #a1a1aa;
+    --palette-gray-soft: #1c1c1f;
+    --palette-red: #f87171;
+    --palette-red-soft: #2d1010;
+    --palette-orange: #fb923c;
+    --palette-orange-soft: #2e160a;
+    --palette-yellow: #facc15;
+    --palette-yellow-soft: #2d2407;
+    --palette-green: #4ade80;
+    --palette-green-soft: #0c2616;
+    --palette-teal: #22d3ee;
+    --palette-teal-soft: #082a33;
+    --palette-blue: #60a5fa;
+    --palette-blue-soft: #0d2238;
+    --palette-purple: #c084fc;
+    --palette-purple-soft: #261138;
+  }
+}
+
+@theme {
+  --color-bg-base: var(--bg-base);
+  --color-bg-raised: var(--bg-raised);
+  --color-bg-overlay: var(--bg-overlay);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text-main: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-subtle: var(--text-subtle);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-fg: var(--success-fg);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-fg: var(--warning-fg);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-fg: var(--danger-fg);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-info-fg: var(--info-fg);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-full: var(--radius-full);
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+
+  --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Base typography & styles */
+html,
+body {
+  background-color: var(--bg-base);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv01", "cv02", "cv03", "cv04", "cv11";
+}
+
+/* Monospace text helper */
+.font-mono-id {
+  font-family: var(--font-mono);
+  font-feature-settings: normal;
+  letter-spacing: 0;
+}
+
+/* Custom scrollbars for dense surfaces */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* Accessible focus ring */
+.focus-ring {
+  outline: none;
+  transition: box-shadow var(--duration-fast) var(--ease-standard);
+}
+.focus-ring:focus-visible {
+  box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--accent);
+}
