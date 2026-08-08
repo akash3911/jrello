@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum ProjectRole {
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum IssuePriority {
+  NONE
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum IssueStatusKind {
+  BACKLOG
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+  CANCELED
+}
+
+enum SprintState {
+  PLANNED
+  ACTIVE
+  COMPLETED
+}
+
+// User model: Local mirror keyed by clerkId (identity managed by Clerk via webhook)
+model User {
+  id              String    @id @default(uuid()) @db.Uuid
+  clerkId         String    @unique
+  email           String    @unique
+  emailVerifiedAt DateTime?
+  name            String?
+  avatarUrl       String?
+  githubId        String?   @unique
+  githubLogin     String?
+  deletedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([email])
+}
