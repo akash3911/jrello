@@ -57,9 +57,8 @@ export async function POST(req: Request) {
         },
       });
     } else if (eventType === "user.deleted") {
-      await prisma.user.updateMany({
+      await prisma.user.deleteMany({
         where: { clerkId },
-        data: { deletedAt: new Date() },
       });
     }
 

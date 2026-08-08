@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { getIssueByKey } from "@/lib/api/issues";
-import IssueDetailStandaloneClient from "./issue-client";
+import IssueDetailStandaloneClient, { type FullIssueData } from "./issue-client";
 
 interface IssueDetailPageProps {
   params: Promise<{
@@ -36,7 +36,7 @@ export default async function IssueDetailPage({ params }: IssueDetailPageProps) 
 
   return (
     <IssueDetailStandaloneClient
-      issue={issue}
+      issue={issue as unknown as FullIssueData}
       workspaceSlug={workspaceSlug}
     />
   );

@@ -46,7 +46,7 @@ export async function getCurrentUser(): Promise<CurrentActor | null> {
     }
   }
 
-  if (!user || user.deletedAt) {
+  if (!user) {
     return null;
   }
 

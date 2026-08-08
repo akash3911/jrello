@@ -171,10 +171,8 @@ export async function getIssueByKey({
       deletedAt: null,
       project: {
         key: projectKey.toUpperCase(),
-        deletedAt: null,
         workspace: {
           slug: workspaceSlug.toLowerCase(),
-          deletedAt: null,
         },
       },
     },
@@ -287,7 +285,7 @@ export async function moveIssue({
         data: {
           issueId,
           actorId: userId,
-          type: ActivityType.ISSUE_MOVED,
+          type: ActivityType.STATUS_CHANGED,
           payload: {
             fromStatus: existing.status.name,
             toStatus: updated.status.name,

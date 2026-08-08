@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { GitBranch, Check, Copy } from "lucide-react";
 import { AppShell } from "@/components/shell/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,8 +26,14 @@ export default function ProjectSettingsClient({
   const router = useRouter();
   const [name, setName] = React.useState(project.name);
   const [description, setDescription] = React.useState(project.description || "");
+  const [repoFullName, setRepoFullName] = React.useState("akash3911/jrello");
+  const [copiedWebhook, setCopiedWebhook] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [savedSuccess, setSavedSuccess] = React.useState(false);
+
+  const webhookUrl = typeof window !== "undefined"
+    ? `${window.location.origin}/api/webhooks/github`
+    : "http://localhost:3000/api/webhooks/github";
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,6 +59,12 @@ export default function ProjectSettingsClient({
     } finally {
       setSaving(false);
     }
+  };
+
+  const copyWebhook = () => {
+    navigator.clipboard.writeText(webhookUrl);
+    setCopiedWebhook(true);
+    setTimeout(() => setCopiedWebhook(false), 2000);
   };
 
   const handleDeleteProject = async () => {
@@ -87,7 +100,7 @@ export default function ProjectSettingsClient({
               </Badge>
             </div>
             <p className="text-xs text-[var(--text-muted)]">
-              Manage configuration, issue identifier prefixes, and member access for {project.name}.
+              Manage configuration, issue identifier prefixes, and GitHub repository links for {project.name}.
             </p>
           </div>
 
@@ -158,6 +171,69 @@ export default function ProjectSettingsClient({
               </div>
             </div>
 
+            {/* GitHub Repository Connection Section (Phase 7) */}
+            <div className="p-5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <GitBranch className="h-4 w-4 text-[var(--accent)]" />
+                  <h2 className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
+                    GitHub Repository Link
+                  </h2>
+                </div>
+                <Badge variant="accent" size="sm">
+                  Phase 7 Wired
+                </Badge>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-[var(--text-subtle)] uppercase">
+                  Primary Repository
+                </label>
+                <Input
+                  value={repoFullName}
+                  onChange={(e) => setRepoFullName(e.target.value)}
+                  placeholder="owner/repo (e.g. acme/jrello)"
+                  className="font-mono-id"
+                />
+                <span className="text-[11px] text-[var(--text-subtle)]">
+                  Branches and PRs mentioning <code className="font-bold">{project.key}-*</code> in this repo will automatically associate with issues.
+                </span>
+              </div>
+
+              {/* Webhook Endpoint Box */}
+              <div className="flex flex-col gap-1.5 pt-2">
+                <label className="text-xs font-semibold text-[var(--text-subtle)] uppercase">
+                  Inbound Webhook URL
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={webhookUrl}
+                    readOnly
+                    className="font-mono-id text-xs bg-[var(--bg-base)]"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    onClick={copyWebhook}
+                    className="text-xs gap-1.5 shrink-0"
+                  >
+                    {copiedWebhook ? (
+                      <>
+                        <Check className="h-3.5 w-3.5 text-[var(--success)]" />
+                        <span>Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3.5 w-3.5" />
+                        <span>Copy URL</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
             {/* Team Members Section */}
             <div className="p-5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] flex flex-col gap-4">
               <h2 className="text-xs font-semibold text-[var(--text-subtle)] uppercase">
@@ -182,23 +258,20 @@ export default function ProjectSettingsClient({
             </div>
 
             {/* Danger Zone */}
-            <div className="p-5 rounded-[var(--radius-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] flex flex-col gap-3">
-              <div className="flex flex-col">
-                <h3 className="text-xs font-semibold text-[var(--danger-fg)] uppercase">
-                  Danger Zone
-                </h3>
-                <p className="text-xs text-[var(--danger-fg)]/80 mt-0.5">
-                  Deleting a project soft-deletes its issues and statuses. This can be recovered by a workspace owner.
-                </p>
-              </div>
-
-              <div className="flex items-center justify-end pt-2">
+            <div className="p-5 rounded-[var(--radius-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)]/20 flex flex-col gap-3">
+              <h2 className="text-xs font-semibold text-[var(--danger)] uppercase tracking-wider">
+                Danger Zone
+              </h2>
+              <p className="text-xs text-[var(--text-muted)]">
+                Permanently remove this project, custom columns, issue numbers, and sprints.
+              </p>
+              <div className="flex justify-start pt-1">
                 <Button
-                  variant="danger"
+                  variant="primary"
                   size="sm"
                   type="button"
                   onClick={handleDeleteProject}
-                  className="text-xs"
+                  className="bg-[var(--danger)] hover:bg-[var(--danger-hover)] text-[var(--danger-fg)] text-xs"
                 >
                   Delete Project
                 </Button>

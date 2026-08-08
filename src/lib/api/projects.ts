@@ -78,10 +78,8 @@ export async function getProjectBySlug(workspaceSlug: string, projectSlug: strin
       slug: projectSlug.toLowerCase(),
       workspace: {
         slug: workspaceSlug.toLowerCase(),
-        deletedAt: null,
         ...(userId ? { members: { some: { userId } } } : {}),
       },
-      deletedAt: null,
     },
     include: {
       workspace: true,

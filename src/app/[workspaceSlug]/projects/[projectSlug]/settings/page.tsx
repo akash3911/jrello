@@ -15,14 +15,19 @@ export default async function ProjectSettingsPage({ params }: SettingsPageProps)
   const actor = await getCurrentUser();
 
   const project = await getProjectBySlug(workspaceSlug, projectSlug, actor?.user.id);
-
   if (!project) {
     notFound();
   }
 
+  const fullProject = {
+    ...project,
+    statuses: project.statuses || [],
+    issues: [],
+  };
+
   return (
     <ProjectSettingsClient
-      project={project}
+      project={fullProject}
       workspaceSlug={workspaceSlug}
       currentUser={actor?.user || null}
     />

@@ -1,9 +1,10 @@
 import { prisma } from "@/lib/db";
-import { WorkspaceRole, ProjectRole, IssueStatusKind } from "@prisma/client";
+import { WorkspaceRole } from "@prisma/client";
 
-export interface CreateWorkspaceInput {
+export interface CreateWorkspaceParams {
   name: string;
   slug: string;
+  description?: string;
   userId: string;
   initialProject?: {
     name: string;
@@ -15,83 +16,46 @@ export interface CreateWorkspaceInput {
 export async function createWorkspace({
   name,
   slug,
+  description,
   userId,
   initialProject,
-}: CreateWorkspaceInput) {
-  const cleanSlug = slug.toLowerCase().trim().replace(/[^a-z0-9-]/g, "");
+}: CreateWorkspaceParams) {
+  const normalizedSlug = slug.toLowerCase().trim();
 
-  return await prisma.$transaction(async (tx) => {
-    // 1. Create the workspace
-    const workspace = await tx.workspace.create({
-      data: {
-        name: name.trim(),
-        slug: cleanSlug,
-      },
-    });
-
-    // 2. Add creator as OWNER
-    await tx.workspaceMember.create({
-      data: {
-        workspaceId: workspace.id,
-        userId,
-        role: WorkspaceRole.OWNER,
-      },
-    });
-
-    // 3. If an initial project is requested, create it and seed default statuses
-    if (initialProject) {
-      const projectSlug = initialProject.slug
-        .toLowerCase()
-        .trim()
-        .replace(/[^a-z0-9-]/g, "");
-      const projectKey = initialProject.key.toUpperCase().trim();
-
-      const project = await tx.project.create({
-        data: {
-          workspaceId: workspace.id,
-          name: initialProject.name.trim(),
-          slug: projectSlug,
-          key: projectKey,
-        },
-      });
-
-      // Add user as Project ADMIN
-      await tx.projectMember.create({
-        data: {
-          projectId: project.id,
+  // Create Workspace and add Creator as OWNER
+  return await prisma.workspace.create({
+    data: {
+      name: name.trim(),
+      slug: normalizedSlug,
+      description: description?.trim(),
+      members: {
+        create: {
           userId,
-          role: ProjectRole.ADMIN,
+          role: WorkspaceRole.OWNER,
         },
-      });
-
-      // Seed default Kanban statuses per DATABASE.md
-      const defaultStatuses: {
-        name: string;
-        kind: IssueStatusKind;
-        position: number;
-        isDefault?: boolean;
-      }[] = [
-        { name: "Backlog", kind: IssueStatusKind.BACKLOG, position: 1000 },
-        { name: "Todo", kind: IssueStatusKind.TODO, position: 2000, isDefault: true },
-        { name: "In Progress", kind: IssueStatusKind.IN_PROGRESS, position: 3000 },
-        { name: "In Review", kind: IssueStatusKind.IN_REVIEW, position: 4000 },
-        { name: "Done", kind: IssueStatusKind.DONE, position: 5000 },
-      ];
-
-      for (const st of defaultStatuses) {
-        await tx.issueStatus.create({
-          data: {
-            projectId: project.id,
-            name: st.name,
-            kind: st.kind,
-            position: st.position,
-            isDefault: st.isDefault || false,
-          },
-        });
-      }
-    }
-
-    return workspace;
+      },
+      ...(initialProject
+        ? {
+            projects: {
+              create: {
+                name: initialProject.name.trim(),
+                slug: initialProject.slug.toLowerCase().trim(),
+                key: initialProject.key.toUpperCase().trim(),
+                members: {
+                  create: {
+                    userId,
+                    role: "ADMIN",
+                  },
+                },
+              },
+            },
+          }
+        : {}),
+    },
+    include: {
+      members: true,
+      projects: true,
+    },
   });
 }
 
@@ -101,13 +65,11 @@ export async function getUserWorkspaces(userId: string) {
     include: {
       workspace: {
         include: {
-          projects: {
-            where: { deletedAt: null },
-          },
+          projects: true,
         },
       },
     },
-    orderBy: { joinedAt: "asc" },
+    orderBy: { createdAt: "asc" },
   });
 
   return memberships.map((m) => ({
@@ -120,9 +82,7 @@ export async function getWorkspaceBySlug(slug: string, userId?: string) {
   const workspace = await prisma.workspace.findUnique({
     where: { slug: slug.toLowerCase() },
     include: {
-      projects: {
-        where: { deletedAt: null },
-      },
+      projects: true,
       members: {
         include: {
           user: {
@@ -138,7 +98,7 @@ export async function getWorkspaceBySlug(slug: string, userId?: string) {
     },
   });
 
-  if (!workspace || workspace.deletedAt) {
+  if (!workspace) {
     return null;
   }
 
