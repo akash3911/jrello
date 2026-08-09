@@ -7,6 +7,7 @@ import {
   recordIssueBranch,
   recordIssueCheck,
 } from "@/lib/api/github";
+import { triggerIssueAutomation } from "@/lib/api/automation";
 import { prisma } from "@/lib/db";
 
 interface GitHubWebhookPayload {
@@ -100,6 +101,21 @@ export async function POST(req: NextRequest) {
             url: pr.html_url,
             headSha: pr.head.sha,
           });
+
+          // Trigger Automation: PR Merged -> Done, PR Opened -> In Review
+          if (pr.merged) {
+            await triggerIssueAutomation({
+              issueId: issue.id,
+              event: "PR_MERGED",
+              metadata: { prNumber: pr.number, prTitle: pr.title },
+            });
+          } else if (pr.state === "open") {
+            await triggerIssueAutomation({
+              issueId: issue.id,
+              event: "PR_OPENED",
+              metadata: { prNumber: pr.number, prTitle: pr.title },
+            });
+          }
         }
       }
     }
@@ -131,6 +147,13 @@ export async function POST(req: NextRequest) {
             repoId: repo.id,
             branchName,
             headSha: payload.after,
+          });
+
+          // Trigger Automation: Branch Created -> In Progress
+          await triggerIssueAutomation({
+            issueId: issue.id,
+            event: "BRANCH_CREATED",
+            metadata: { branchName },
           });
         }
       }
