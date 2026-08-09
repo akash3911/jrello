@@ -14,6 +14,7 @@ import { useTheme } from "next-themes";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
+import { NotificationInbox } from "@/components/shell/NotificationInbox";
 
 export interface TopbarProps {
   onOpenCommandPalette: () => void;
@@ -59,64 +60,59 @@ export function Topbar({
     <header className="flex h-12 w-full items-center justify-between border-b border-[var(--border)] bg-[var(--bg-base)] px-4 select-none z-20">
       {/* Left: Breadcrumbs & Project Indicator */}
       <div className="flex items-center gap-2 text-xs">
-        <span className="font-semibold text-[var(--text)]">Acme Software</span>
-        <ChevronRight className="h-3.5 w-3.5 text-[var(--text-subtle)]" strokeWidth={1.5} />
-        <span className="font-mono-id px-1.5 py-0.5 rounded bg-[var(--bg-overlay)] border border-[var(--border)] font-semibold text-[var(--text)]">
-          {currentProject}
-        </span>
-        <ChevronRight className="h-3.5 w-3.5 text-[var(--text-subtle)]" strokeWidth={1.5} />
-        <span className="capitalize text-[var(--text-muted)] font-medium">
+        <div className="flex items-center gap-1.5 font-medium text-[var(--text)]">
+          <span className="flex h-5 w-5 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--accent)] text-[10px] font-mono-id font-bold text-[var(--accent-fg)]">
+            {currentProject.slice(0, 2)}
+          </span>
+          <span className="tracking-tight">{currentProject} Workspace</span>
+        </div>
+
+        <ChevronRight className="h-3.5 w-3.5 text-[var(--text-subtle)]" />
+
+        <span className="font-mono-id text-[var(--text-muted)] capitalize">
           {activeView}
         </span>
       </div>
 
-      {/* Center: Command Palette Trigger */}
-      <div className="flex-1 max-w-md mx-4 hidden sm:block">
-        <button
-          onClick={onOpenCommandPalette}
-          className="flex h-8 w-full items-center justify-between rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-raised)] px-3 text-xs text-[var(--text-subtle)] hover:border-[var(--border-strong)] hover:text-[var(--text)] transition-colors focus-ring"
-        >
-          <div className="flex items-center gap-2">
-            <Search className="h-3.5 w-3.5" strokeWidth={1.5} />
-            <span>Search or jump to...</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <kbd className="inline-flex h-4 items-center rounded border border-[var(--border)] bg-[var(--bg-overlay)] px-1 font-mono-id text-[10px] text-[var(--text-subtle)]">
-              ⌘K
-            </kbd>
-            <kbd className="inline-flex h-4 items-center rounded border border-[var(--border)] bg-[var(--bg-overlay)] px-1 font-mono-id text-[10px] text-[var(--text-subtle)]">
-              /
-            </kbd>
-          </div>
-        </button>
-      </div>
+      {/* Center: Command Palette Trigger Button */}
+      <button
+        onClick={onOpenCommandPalette}
+        className="flex items-center justify-between w-64 md:w-80 h-8 px-2.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-raised)] text-xs text-[var(--text-subtle)] hover:border-[var(--border-strong)] hover:text-[var(--text)] transition-colors focus-ring"
+        title="Open Command Palette (Cmd+K / Ctrl+K)"
+      >
+        <div className="flex items-center gap-2">
+          <Search className="h-3.5 w-3.5" strokeWidth={1.5} />
+          <span>Search issues, jump to view...</span>
+        </div>
+        <kbd className="hidden sm:inline-flex h-4 items-center gap-0.5 rounded-[2px] border border-[var(--border)] bg-[var(--bg-base)] px-1 font-mono-id text-[10px] text-[var(--text-subtle)]">
+          <span>⌘</span>K
+        </kbd>
+      </button>
 
-      {/* Right: Actions, Presence, Theme, Dev & Profile */}
+      {/* Right: Actions, Live Avatars, Notifications, Theme Toggle */}
       <div className="flex items-center gap-2">
-        {/* Create Issue Action Button */}
+        {/* Quick Issue Create Button (C) */}
         <Button
           variant="primary"
           size="sm"
           onClick={onCreateIssue}
-          className="gap-1 text-xs"
+          className="h-7 text-xs gap-1 shadow-[var(--shadow-sm)]"
           title="Create Issue (C)"
         >
           <Plus className="h-3.5 w-3.5" strokeWidth={2} />
-          <span className="hidden md:inline">Create Issue</span>
-          <kbd className="hidden md:inline-flex h-4 items-center rounded bg-black/20 px-1 font-mono-id text-[9px] text-[var(--accent-fg)] ml-1">
-            C
-          </kbd>
+          <span className="hidden sm:inline">New Issue</span>
+          <kbd className="hidden md:inline-block ml-1 font-mono-id text-[9px] opacity-70">C</kbd>
         </Button>
 
-        {/* Presence Avatars */}
-        <div className="hidden lg:flex items-center -space-x-1.5 ml-1 mr-1">
+        {/* Live Presence Avatars in Topbar */}
+        <div className="hidden lg:flex items-center -space-x-1.5 overflow-hidden pl-2">
           {onlineMembers.map((member) => (
-            <div key={member.name} className="relative group" title={`${member.name} (online)`}>
-              <Avatar
-                fallback={member.fallback}
-                size="sm"
-                className="ring-2 ring-[var(--bg-base)] cursor-default"
-              />
+            <div
+              key={member.name}
+              title={`${member.name} is viewing`}
+              className={`relative rounded-full border-2 ${member.color} ring-1 ring-[var(--bg-base)] transition-transform hover:scale-110 hover:z-10`}
+            >
+              <Avatar fallback={member.fallback} size="xs" />
               <span className="absolute bottom-0 right-0 h-1.5 w-1.5 rounded-full bg-[var(--success)] ring-1 ring-[var(--bg-base)]" />
             </div>
           ))}
@@ -126,6 +122,9 @@ export function Topbar({
         </div>
 
         <div className="h-4 w-[1px] bg-[var(--border)] mx-0.5 hidden sm:block" />
+
+        {/* Notification Inbox Drawer */}
+        <NotificationInbox />
 
         {/* Dev Component Gallery Link */}
         <Link href="/dev">
