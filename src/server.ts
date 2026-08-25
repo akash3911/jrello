@@ -7,9 +7,10 @@ import type {
   ServerToClientEvents,
   PresenceViewer,
 } from "./lib/realtime/events";
+import { setSocketServer } from "./lib/realtime/server";
 
 const dev = process.env.NODE_ENV !== "production";
-const hostname = "localhost";
+const hostname = process.env.HOST || "0.0.0.0";
 const port = parseInt(process.env.PORT || "3000", 10);
 
 const app = next({ dev, hostname, port });
@@ -30,62 +31,67 @@ app.prepare().then(() => {
     }
   });
 
-  const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(httpServer, {
-    path: "/api/socket",
-    cors: {
-      origin: "*",
-    },
-  });
+  const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(
+    httpServer,
+    {
+      path: "/api/socket",
+      cors: { origin: true, credentials: true },
+    }
+  );
+
+  // Expose to route handlers so mutations can broadcast in realtime.
+  setSocketServer(io);
 
   io.on("connection", (socket) => {
-    let activeProjectId: string | null = null;
+    const joinedProjects = new Set<string>();
     let currentUser: PresenceViewer | null = null;
 
+    const broadcastPresence = (projectId: string) => {
+      io.to(`project:${projectId}`).emit("presence:update", {
+        projectId,
+        viewers: roomViewers[projectId] ?? [],
+      });
+    };
+
+    const removeViewerFrom = (projectId: string) => {
+      if (!currentUser || !roomViewers[projectId]) return;
+      const before = roomViewers[projectId].length;
+      roomViewers[projectId] = roomViewers[projectId].filter(
+        (v) => v.id !== currentUser?.id
+      );
+      if (roomViewers[projectId].length !== before) {
+        broadcastPresence(projectId);
+      }
+    };
+
     socket.on("project:join", ({ projectId, user }) => {
-      activeProjectId = projectId;
       currentUser = user;
+      joinedProjects.add(projectId);
       socket.join(`project:${projectId}`);
 
-      if (!roomViewers[projectId]) {
-        roomViewers[projectId] = [];
-      }
-
-      // Add user to presence list if not already present
+      if (!roomViewers[projectId]) roomViewers[projectId] = [];
       if (!roomViewers[projectId].some((v) => v.id === user.id)) {
         roomViewers[projectId].push(user);
       }
 
-      io.to(`project:${projectId}`).emit("presence:update", {
-        projectId,
-        viewers: roomViewers[projectId],
-      });
+      broadcastPresence(projectId);
     });
 
-    socket.on("project:leave", ({ projectId, userId }) => {
+    socket.on("project:leave", ({ projectId }) => {
+      joinedProjects.delete(projectId);
       socket.leave(`project:${projectId}`);
-      if (roomViewers[projectId]) {
-        roomViewers[projectId] = roomViewers[projectId].filter((v) => v.id !== userId);
-        io.to(`project:${projectId}`).emit("presence:update", {
-          projectId,
-          viewers: roomViewers[projectId],
-        });
-      }
+      removeViewerFrom(projectId);
     });
 
     socket.on("disconnect", () => {
-      if (activeProjectId && currentUser && roomViewers[activeProjectId]) {
-        roomViewers[activeProjectId] = roomViewers[activeProjectId].filter(
-          (v) => v.id !== currentUser?.id
-        );
-        io.to(`project:${activeProjectId}`).emit("presence:update", {
-          projectId: activeProjectId,
-          viewers: roomViewers[activeProjectId],
-        });
+      for (const projectId of joinedProjects) {
+        removeViewerFrom(projectId);
       }
     });
   });
 
-  httpServer.listen(port, () => {
-    console.log(`> Jrello server ready on http://${hostname}:${port}`);
+  httpServer.listen(port, hostname, () => {
+    console.log(`> Jrello ready on http://localhost:${port} (${dev ? "dev" : "production"})`);
+    console.log(`> Realtime engine listening on path /api/socket`);
   });
 });
