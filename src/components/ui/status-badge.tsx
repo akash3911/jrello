@@ -1,12 +1,4 @@
 import * as React from "react";
-import {
-  Circle,
-  Clock,
-  PlayCircle,
-  Eye,
-  CheckCircle2,
-  XCircle,
-} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type StatusKind =
@@ -24,57 +16,23 @@ interface StatusBadgeProps {
   size?: "sm" | "md";
 }
 
-const statusConfig: Record<
-  StatusKind,
-  {
-    label: string;
-    icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
-    badgeClass: string;
-    iconClass: string;
-  }
-> = {
-  BACKLOG: {
-    label: "Backlog",
-    icon: Circle,
-    badgeClass:
-      "bg-[var(--bg-overlay)] text-[var(--text-muted)] border-[var(--border)]",
-    iconClass: "text-[var(--text-subtle)]",
-  },
-  TODO: {
-    label: "Todo",
-    icon: Clock,
-    badgeClass:
-      "bg-[var(--bg-raised)] text-[var(--text)] border-[var(--border-strong)]",
-    iconClass: "text-[var(--text-muted)]",
-  },
-  IN_PROGRESS: {
-    label: "In Progress",
-    icon: PlayCircle,
-    badgeClass:
-      "bg-[var(--accent-soft)] text-[var(--accent)] border-[var(--accent)]/30",
-    iconClass: "text-[var(--accent)]",
-  },
-  IN_REVIEW: {
-    label: "In Review",
-    icon: Eye,
-    badgeClass:
-      "bg-[var(--palette-purple-soft)] text-[var(--palette-purple)] border-[var(--palette-purple)]/30",
-    iconClass: "text-[var(--palette-purple)]",
-  },
-  DONE: {
-    label: "Done",
-    icon: CheckCircle2,
-    badgeClass:
-      "bg-[var(--success-soft)] text-[var(--success-fg)] border-[var(--success)]/30",
-    iconClass: "text-[var(--success)]",
-  },
-  CANCELED: {
-    label: "Canceled",
-    icon: XCircle,
-    badgeClass:
-      "bg-[var(--bg-overlay)] text-[var(--text-subtle)] border-[var(--border)] line-through",
-    iconClass: "text-[var(--text-subtle)]",
-  },
+/** Dot color per workflow kind — reads cleanly at any size. */
+const dotClass: Record<StatusKind, string> = {
+  BACKLOG: "bg-[var(--palette-gray)]",
+  TODO: "bg-[var(--text-subtle)]",
+  IN_PROGRESS: "bg-[var(--accent)]",
+  IN_REVIEW: "bg-[var(--palette-purple)]",
+  DONE: "bg-[var(--success)]",
+  CANCELED: "bg-[var(--danger)]",
+};
+
+const label: Record<StatusKind, string> = {
+  BACKLOG: "Backlog",
+  TODO: "Todo",
+  IN_PROGRESS: "In Progress",
+  IN_REVIEW: "In Review",
+  DONE: "Done",
+  CANCELED: "Canceled",
 };
 
 export function StatusBadge({
@@ -83,21 +41,26 @@ export function StatusBadge({
   className,
   size = "sm",
 }: StatusBadgeProps) {
-  const current = statusConfig[status] || statusConfig.BACKLOG;
-  const Icon = current.icon;
-
   return (
     <span
+      title={`Status: ${label[status] ?? status}`}
       className={cn(
-        "inline-flex items-center gap-1.5 font-medium border rounded-[var(--radius-sm)] select-none",
-        current.badgeClass,
-        size === "sm" ? "h-5 px-1.5 text-[11px]" : "h-6 px-2 text-xs",
+        "inline-flex items-center gap-1.5 font-medium rounded-[var(--radius-sm)] select-none whitespace-nowrap",
+        size === "sm" ? "h-5 px-1 text-[11px]" : "h-6 px-1.5 text-xs",
+        !showLabel && "px-0.5",
         className
       )}
-      title={`Status: ${current.label}`}
     >
-      <Icon className={cn("h-3.5 w-3.5 shrink-0", current.iconClass)} strokeWidth={1.5} />
-      {showLabel && <span>{current.label}</span>}
+      <span
+        className={cn(
+          "rounded-full shrink-0",
+          size === "sm" ? "h-2 w-2" : "h-2.5 w-2.5",
+          dotClass[status] ?? dotClass.BACKLOG
+        )}
+      />
+      {showLabel && (
+        <span className="text-[var(--text-muted)]">{label[status] ?? status}</span>
+      )}
     </span>
   );
 }

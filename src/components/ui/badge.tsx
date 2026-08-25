@@ -9,22 +9,23 @@ const badgeVariants = cva(
       variant: {
         default:
           "bg-[var(--bg-overlay)] text-[var(--text-muted)] border border-[var(--border)]",
-        mono: "font-mono-id bg-[var(--bg-raised)] text-[var(--text)] border border-[var(--border)] tracking-tight font-semibold",
+        mono: "font-mono-id bg-[var(--bg-inset)] text-[var(--text)] border border-[var(--border)] tracking-tight font-semibold",
         accent:
-          "bg-[var(--accent-soft)] text-[var(--accent)] border border-[var(--accent)]/20",
+          "bg-[var(--accent-soft)] text-[var(--accent)] border border-[var(--accent)]/25",
         success:
-          "bg-[var(--success-soft)] text-[var(--success-fg)] border border-[var(--success)]/20",
+          "bg-[var(--success-soft)] text-[var(--success-fg)] border border-[var(--success)]/25",
         warning:
-          "bg-[var(--warning-soft)] text-[var(--warning-fg)] border border-[var(--warning)]/20",
+          "bg-[var(--warning-soft)] text-[var(--warning-fg)] border border-[var(--warning)]/25",
         danger:
-          "bg-[var(--danger-soft)] text-[var(--danger-fg)] border border-[var(--danger)]/20",
-        info: "bg-[var(--info-soft)] text-[var(--info-fg)] border border-[var(--info)]/20",
+          "bg-[var(--danger-soft)] text-[var(--danger-fg)] border border-[var(--danger)]/25",
+        info: "bg-[var(--info-soft)] text-[var(--info-fg)] border border-[var(--info)]/25",
         purple:
-          "bg-[var(--palette-purple-soft)] text-[var(--palette-purple)] border border-[var(--palette-purple)]/20",
+          "bg-[var(--palette-purple-soft)] text-[var(--palette-purple)] border border-[var(--palette-purple)]/25",
         orange:
-          "bg-[var(--palette-orange-soft)] text-[var(--palette-orange)] border border-[var(--palette-orange)]/20",
+          "bg-[var(--palette-orange-soft)] text-[var(--palette-orange)] border border-[var(--palette-orange)]/25",
       },
       size: {
+        xs: "h-4.5 px-1.5 text-[10px] rounded-[3px]",
         sm: "h-5 px-1.5 text-[11px] rounded-[var(--radius-sm)]",
         md: "h-6 px-2 text-xs rounded-[var(--radius-sm)]",
       },
@@ -41,9 +42,7 @@ export interface BadgeProps
     VariantProps<typeof badgeVariants> {}
 
 function Badge({ className, variant, size, ...props }: BadgeProps) {
-  return (
-    <div className={cn(badgeVariants({ variant, size }), className)} {...props} />
-  );
+  return <div className={cn(badgeVariants({ variant, size }), className)} {...props} />;
 }
 
 export { Badge, badgeVariants };
