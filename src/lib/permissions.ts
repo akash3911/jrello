@@ -1,5 +1,8 @@
 import { WorkspaceRole, ProjectRole } from "@prisma/client";
 
+export type WorkspaceRoleLike = WorkspaceRole;
+export type ProjectRoleLike = ProjectRole;
+
 export function canManageWorkspace(role?: WorkspaceRole | null): boolean {
   return role === WorkspaceRole.OWNER || role === WorkspaceRole.ADMIN;
 }
@@ -15,17 +18,11 @@ export function canManageProject(
 }
 
 export function canCreateIssue(projectRole?: ProjectRole | null): boolean {
-  return (
-    projectRole === ProjectRole.ADMIN ||
-    projectRole === ProjectRole.MEMBER
-  );
+  return projectRole === ProjectRole.ADMIN || projectRole === ProjectRole.MEMBER;
 }
 
 export function canEditIssue(projectRole?: ProjectRole | null): boolean {
-  return (
-    projectRole === ProjectRole.ADMIN ||
-    projectRole === ProjectRole.MEMBER
-  );
+  return projectRole === ProjectRole.ADMIN || projectRole === ProjectRole.MEMBER;
 }
 
 export function canDeleteIssue(

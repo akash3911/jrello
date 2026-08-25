@@ -42,17 +42,21 @@ export async function createNotification({
 }
 
 export async function listUserNotifications(userId: string, workspaceId: string) {
-  return await prisma.notification.findMany({
+  return prisma.notification.findMany({
     where: {
       userId,
       workspaceId,
     },
     include: {
       actor: {
+        select: { id: true, name: true, avatarUrl: true },
+      },
+      issue: {
         select: {
           id: true,
-          name: true,
-          avatarUrl: true,
+          number: true,
+          title: true,
+          project: { select: { key: true } },
         },
       },
     },
@@ -84,7 +88,7 @@ export async function markNotificationRead(notificationId: string, userId: strin
 }
 
 export async function markAllNotificationsRead(userId: string, workspaceId: string) {
-  return await prisma.notification.updateMany({
+  return prisma.notification.updateMany({
     where: {
       userId,
       workspaceId,

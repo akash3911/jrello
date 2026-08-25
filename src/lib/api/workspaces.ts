@@ -1,10 +1,12 @@
+import "server-only";
 import { prisma } from "@/lib/db";
 import { WorkspaceRole } from "@prisma/client";
+import { DEFAULT_STATUSES } from "./projects";
 
 export interface CreateWorkspaceParams {
   name: string;
   slug: string;
-  description?: string;
+  description?: string | null;
   userId: string;
   initialProject?: {
     name: string;
@@ -22,40 +24,46 @@ export async function createWorkspace({
 }: CreateWorkspaceParams) {
   const normalizedSlug = slug.toLowerCase().trim();
 
-  // Create Workspace and add Creator as OWNER
-  return await prisma.workspace.create({
-    data: {
-      name: name.trim(),
-      slug: normalizedSlug,
-      description: description?.trim(),
-      members: {
-        create: {
-          userId,
-          role: WorkspaceRole.OWNER,
-        },
+  return prisma.$transaction(async (tx) => {
+    const workspace = await tx.workspace.create({
+      data: {
+        name: name.trim(),
+        slug: normalizedSlug,
+        description: description?.trim() || null,
+        members: { create: { userId, role: WorkspaceRole.OWNER } },
       },
-      ...(initialProject
-        ? {
-            projects: {
-              create: {
-                name: initialProject.name.trim(),
-                slug: initialProject.slug.toLowerCase().trim(),
-                key: initialProject.key.toUpperCase().trim(),
-                members: {
-                  create: {
-                    userId,
-                    role: "ADMIN",
-                  },
-                },
-              },
-            },
-          }
-        : {}),
-    },
-    include: {
-      members: true,
-      projects: true,
-    },
+    });
+
+    if (initialProject) {
+      const cleanSlug = initialProject.slug.toLowerCase().trim();
+      const cleanKey = initialProject.key.toUpperCase().trim();
+
+      const project = await tx.project.create({
+        data: {
+          workspaceId: workspace.id,
+          name: initialProject.name.trim(),
+          slug: cleanSlug,
+          key: cleanKey,
+          members: { create: { userId, role: "ADMIN" } },
+        },
+      });
+
+      // Seed the canonical kanban workflow for the first project
+      await tx.issueStatus.createMany({
+        data: DEFAULT_STATUSES.map((s) => ({
+          projectId: project.id,
+          name: s.name,
+          kind: s.kind,
+          position: s.position,
+          isDefault: s.isDefault ?? false,
+        })),
+      });
+    }
+
+    return tx.workspace.findUniqueOrThrow({
+      where: { id: workspace.id },
+      include: { members: true, projects: true },
+    });
   });
 }
 
@@ -64,51 +72,41 @@ export async function getUserWorkspaces(userId: string) {
     where: { userId },
     include: {
       workspace: {
-        include: {
-          projects: true,
-        },
+        include: { _count: { select: { projects: true } } },
       },
     },
     orderBy: { createdAt: "asc" },
   });
 
   return memberships.map((m) => ({
-    ...m.workspace,
+    id: m.workspace.id,
+    name: m.workspace.name,
+    slug: m.workspace.slug,
+    logoUrl: m.workspace.logoUrl,
     role: m.role,
+    projectCount: m.workspace._count.projects,
   }));
 }
 
-export async function getWorkspaceBySlug(slug: string, userId?: string) {
-  const workspace = await prisma.workspace.findUnique({
-    where: { slug: slug.toLowerCase() },
+export function getWorkspaceBySlug(slug: string, userId?: string) {
+  return prisma.workspace.findFirst({
+    where: {
+      slug: slug.toLowerCase(),
+      ...(userId ? { members: { some: { userId } } } : {}),
+    },
     include: {
-      projects: true,
+      projects: {
+        orderBy: { createdAt: "asc" },
+        include: { _count: { select: { issues: { where: { deletedAt: null } } } } },
+      },
       members: {
         include: {
           user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              avatarUrl: true,
-            },
+            select: { id: true, name: true, email: true, avatarUrl: true },
           },
         },
+        orderBy: { createdAt: "asc" },
       },
     },
   });
-
-  if (!workspace) {
-    return null;
-  }
-
-  // If userId is passed, verify tenancy membership
-  if (userId) {
-    const isMember = workspace.members.some((m) => m.userId === userId);
-    if (!isMember) {
-      return null;
-    }
-  }
-
-  return workspace;
 }
