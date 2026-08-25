@@ -1,114 +1,140 @@
 "use client";
 
 import * as React from "react";
-import { Bell, Sparkles, User, MessageSquare } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Bell, UserPlus, MessageSquare, ArrowUpRight } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { relativeTime } from "@/lib/format";
 
-export interface NotificationItem {
+type NotificationType = "ASSIGNED" | "MENTIONED" | "COMMENTED" | "STATUS_CHANGED";
+
+interface NotificationItem {
   id: string;
-  type: "ASSIGNED" | "MENTIONED" | "COMMENTED" | "STATUS_CHANGED";
-  issueKey?: string;
-  title: string;
-  actorName: string;
-  readAt: string | Date | null;
+  type: NotificationType;
+  readAt: string | null;
   createdAt: string;
+  actorName?: string | null;
+  issueKey?: string | null;
+  issueTitle?: string | null;
+  issueHref?: string | null;
 }
 
-export function NotificationInbox() {
+const typeIcon: Record<NotificationType, React.ReactNode> = {
+  ASSIGNED: <UserPlus className="h-3.5 w-3.5 text-[var(--success)]" />,
+  MENTIONED: <MessageSquare className="h-3.5 w-3.5 text-[var(--palette-purple)]" />,
+  COMMENTED: <MessageSquare className="h-3.5 w-3.5 text-[var(--info)]" />,
+  STATUS_CHANGED: <ArrowUpRight className="h-3.5 w-3.5 text-[var(--accent)]" />,
+};
+
+const typeText: Record<NotificationType, string> = {
+  ASSIGNED: "assigned you",
+  MENTIONED: "mentioned you",
+  COMMENTED: "commented",
+  STATUS_CHANGED: "updated status on",
+};
+
+export function NotificationInbox({ workspaceSlug }: { workspaceSlug: string }) {
   const [isOpen, setIsOpen] = React.useState(false);
-  const [notifications, setNotifications] = React.useState<NotificationItem[]>([
-    {
-      id: "n-1",
-      type: "STATUS_CHANGED",
-      issueKey: "JREL-101",
-      title: "Auto-moved to Done on PR #12 merge",
-      actorName: "GitHub Bot",
-      readAt: null,
-      createdAt: "5m ago",
-    },
-    {
-      id: "n-2",
-      type: "ASSIGNED",
-      issueKey: "JREL-104",
-      title: "Assigned you to implement sprint reporting",
-      actorName: "Sarah Chen",
-      readAt: null,
-      createdAt: "1h ago",
-    },
-    {
-      id: "n-3",
-      type: "COMMENTED",
-      issueKey: "JREL-102",
-      title: "Left a comment on Clerk auth proxy routing",
-      actorName: "Alex Mercer",
-      readAt: new Date().toISOString(),
-      createdAt: "3h ago",
-    },
-  ]);
+  const [items, setItems] = React.useState<NotificationItem[]>([]);
+  const [unread, setUnread] = React.useState(0);
+  const [loaded, setLoaded] = React.useState(false);
+  const router = useRouter();
 
-  const unreadCount = notifications.filter((n) => !n.readAt).length;
+  React.useEffect(() => {
+    if (!isOpen || loaded) return;
+    let cancelled = false;
 
-  const markAllRead = () => {
-    setNotifications((prev) =>
-      prev.map((n) => ({ ...n, readAt: new Date().toISOString() }))
+    void (async () => {
+      try {
+        const res = await fetch(`/api/v1/workspaces/${workspaceSlug}/notifications`);
+        if (cancelled || !res.ok) return;
+        const data = await res.json();
+
+        setUnread(data.unreadCount ?? 0);
+        setItems(
+          ((data.notifications ?? []) as Record<string, unknown>[]).map((n) => {
+            const actor = n.actor as { name?: string | null } | null;
+            const issue = n.issue as
+              | { number: number; title: string; project: { key: string } }
+              | null;
+            return {
+              id: n.id as string,
+              type: n.type as NotificationType,
+              readAt: (n.readAt as string) ?? null,
+              createdAt: n.createdAt as string,
+              actorName: actor?.name ?? "Someone",
+              issueKey: issue ? `${issue.project.key}-${issue.number}` : null,
+              issueTitle: issue?.title ?? null,
+              issueHref:
+                n.issueId && issue
+                  ? `/${workspaceSlug}/issue/${issue.project.key}-${issue.number}`
+                  : null,
+            };
+          })
+        );
+        setLoaded(true);
+      } catch {
+        // Inbox is non-critical; fail silently.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, loaded, workspaceSlug]);
+
+  const markRead = async (id: string) => {
+    setItems((prev) =>
+      prev.map((n) =>
+        n.id === id ? { ...n, readAt: n.readAt ?? new Date().toISOString() } : n
+      )
     );
+    setUnread((u) => Math.max(0, u - 1));
+    await fetch(`/api/v1/workspaces/${workspaceSlug}/notifications/${id}/read`, {
+      method: "PATCH",
+    }).catch(() => {});
   };
 
-  const markRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, readAt: new Date().toISOString() } : n))
-    );
-  };
-
-  const getIcon = (type: NotificationItem["type"]) => {
-    switch (type) {
-      case "STATUS_CHANGED":
-        return <Sparkles className="h-3.5 w-3.5 text-[var(--accent)]" />;
-      case "ASSIGNED":
-        return <User className="h-3.5 w-3.5 text-[var(--success)]" />;
-      case "COMMENTED":
-      case "MENTIONED":
-        return <MessageSquare className="h-3.5 w-3.5 text-[var(--purple-fg)]" />;
-    }
+  const markAllRead = async () => {
+    setItems((prev) => prev.map((n) => ({ ...n, readAt: n.readAt ?? new Date().toISOString() })));
+    setUnread(0);
+    await fetch(`/api/v1/workspaces/${workspaceSlug}/notifications`, {
+      method: "PATCH",
+    }).catch(() => {});
+    router.refresh();
   };
 
   return (
     <div className="relative">
-      {/* Bell Trigger Button */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="relative p-1.5 rounded-[var(--radius-sm)] text-[var(--text-subtle)] hover:text-[var(--text)] hover:bg-[var(--bg-overlay)] transition-colors focus-ring"
+        onClick={() => setIsOpen((v) => !v)}
+        className="relative rounded-[var(--radius-md)] p-2 text-[var(--text-subtle)] transition-colors hover:bg-[var(--bg-overlay)] hover:text-[var(--text)] focus-ring"
         title="Notifications"
         aria-label="Notifications"
       >
         <Bell className="h-4 w-4" strokeWidth={1.5} />
-        {unreadCount > 0 && (
-          <span className="absolute top-1 right-1 flex h-2 w-2 rounded-full bg-[var(--accent)] animate-pulse" />
+        {unread > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--accent)] px-1 font-mono-id text-[9px] font-bold text-white">
+            {unread > 9 ? "9+" : unread}
+          </span>
         )}
       </button>
 
-      {/* Popover Dropdown */}
       {isOpen && (
         <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setIsOpen(false)}
-          />
-          <div className="absolute right-0 mt-2 z-50 w-80 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] shadow-[var(--shadow-lg)] flex flex-col animate-in fade-in slide-in-from-top-2 overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-[var(--bg-base)]">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-[var(--text)]">
-                  Notifications
-                </span>
-                {unreadCount > 0 && (
-                  <Badge variant="accent" size="sm">
-                    {unreadCount} new
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div className="absolute right-0 z-50 mt-2 flex w-96 flex-col overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] shadow-[var(--shadow-lg)] animate-modal-in">
+            <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-base)] px-4 py-2.5">
+              <span className="flex items-center gap-2 text-xs font-semibold text-[var(--text)]">
+                Notifications
+                {unread > 0 && (
+                  <Badge variant="accent" size="xs">
+                    {unread} new
                   </Badge>
                 )}
-              </div>
-
-              {unreadCount > 0 && (
+              </span>
+              {unread > 0 && (
                 <button
                   onClick={markAllRead}
                   className="text-[11px] font-medium text-[var(--accent)] hover:underline"
@@ -118,52 +144,56 @@ export function NotificationInbox() {
               )}
             </div>
 
-            {/* List */}
-            <div className="divide-y divide-[var(--border)]/50 max-h-80 overflow-y-auto">
-              {notifications.length === 0 ? (
-                <div className="p-6 text-center text-xs text-[var(--text-subtle)] font-mono-id">
-                  Inbox zero. No new notifications.
+            <div className="max-h-96 divide-y divide-[var(--border)]/60 overflow-y-auto">
+              {!loaded ? (
+                <div className="p-6 text-center text-xs text-[var(--text-subtle)]">
+                  Loading…
+                </div>
+              ) : items.length === 0 ? (
+                <div className="p-8 text-center">
+                  <Bell className="mx-auto h-5 w-5 text-[var(--text-subtle)] opacity-50" />
+                  <p className="mt-2 text-xs text-[var(--text-muted)]">You&apos;re all caught up.</p>
                 </div>
               ) : (
-                notifications.map((item) => (
-                  <div
+                items.map((item) => (
+                  <button
                     key={item.id}
-                    onClick={() => markRead(item.id)}
-                    className={`p-3 flex items-start gap-3 text-xs cursor-pointer transition-colors hover:bg-[var(--bg-overlay)] ${
-                      !item.readAt ? "bg-[var(--accent-soft)]/20" : ""
-                    }`}
-                  >
-                    <div className="mt-0.5 p-1 rounded-full bg-[var(--bg-base)] border border-[var(--border)] shrink-0">
-                      {getIcon(item.type)}
-                    </div>
-
-                    <div className="flex-1 flex flex-col gap-1 min-w-0">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="font-semibold text-[var(--text)] truncate">
-                          {item.actorName}
-                        </span>
-                        <span className="text-[10px] text-[var(--text-subtle)] font-mono-id shrink-0">
-                          {item.createdAt}
-                        </span>
-                      </div>
-
-                      <p className="text-[11px] text-[var(--text-muted)] line-clamp-2">
-                        {item.title}
-                      </p>
-
-                      {item.issueKey && (
-                        <div className="flex items-center gap-1.5 pt-0.5">
-                          <Badge variant="mono" size="sm">
-                            {item.issueKey}
-                          </Badge>
-                        </div>
-                      )}
-                    </div>
-
-                    {!item.readAt && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] mt-1.5 shrink-0" />
+                    onClick={() => {
+                      void markRead(item.id);
+                      if (item.issueHref) {
+                        setIsOpen(false);
+                        router.push(item.issueHref);
+                      }
+                    }}
+                    className={cn(
+                      "flex w-full items-start gap-3 p-3 text-left transition-colors hover:bg-[var(--bg-overlay)]",
+                      !item.readAt && "bg-[var(--accent-soft)]/30"
                     )}
-                  </div>
+                  >
+                    <span className="mt-0.5 shrink-0 rounded-full border border-[var(--border)] bg-[var(--bg-base)] p-1">
+                      {typeIcon[item.type]}
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="truncate text-xs text-[var(--text)]">
+                        <b className="font-semibold">{item.actorName}</b>{" "}
+                        {typeText[item.type]}
+                        {item.issueTitle ? ` “${item.issueTitle}”` : ""}
+                      </span>
+                      {item.issueKey && (
+                        <Badge variant="mono" size="xs" className="w-fit">
+                          {item.issueKey}
+                        </Badge>
+                      )}
+                    </span>
+                    <span className="flex shrink-0 flex-col items-end gap-1">
+                      <span className="font-mono-id text-[10px] text-[var(--text-subtle)]">
+                        {relativeTime(item.createdAt)}
+                      </span>
+                      {!item.readAt && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
+                      )}
+                    </span>
+                  </button>
                 ))
               )}
             </div>

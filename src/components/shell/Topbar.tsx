@@ -1,34 +1,21 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useTheme } from "next-themes";
 import {
   Search,
   Plus,
   Moon,
   Sun,
   HelpCircle,
-  Code2,
   ChevronRight,
 } from "lucide-react";
-import { useTheme } from "next-themes";
-import Link from "next/link";
+import { UserButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
-import { Avatar } from "@/components/ui/avatar";
 import { NotificationInbox } from "@/components/shell/NotificationInbox";
-
-export interface TopbarProps {
-  onOpenCommandPalette: () => void;
-  onOpenShortcuts: () => void;
-  onCreateIssue: () => void;
-  currentProject: string;
-  activeView: string;
-}
-
-const onlineMembers = [
-  { name: "Alex Mercer", fallback: "AM", src: null, color: "border-[var(--accent)]" },
-  { name: "Sarah Chen", fallback: "SC", src: null, color: "border-[var(--success)]" },
-  { name: "Marcus Brody", fallback: "MB", src: null, color: "border-[var(--palette-purple)]" },
-];
+import type { ShellContext, ProjectSummaryClient } from "@/lib/types";
 
 function useIsMounted() {
   return React.useSyncExternalStore(
@@ -38,127 +25,136 @@ function useIsMounted() {
   );
 }
 
+interface TopbarProps {
+  context: ShellContext;
+  activeProject: ProjectSummaryClient | null;
+  activeView: string;
+  onOpenCommandPalette: () => void;
+  onOpenShortcuts: () => void;
+  onCreateIssue: () => void;
+}
+
+const VIEW_LABELS: Record<string, string> = {
+  board: "Board",
+  issues: "Issues",
+  sprints: "Sprints",
+  reports: "Reports",
+  settings: "Settings",
+};
+
 export function Topbar({
+  context,
+  activeProject,
+  activeView,
   onOpenCommandPalette,
   onOpenShortcuts,
   onCreateIssue,
-  currentProject,
-  activeView,
 }: TopbarProps) {
-  const { theme, setTheme } = useTheme();
+  const pathname = usePathname();
+  const { resolvedTheme, setTheme } = useTheme();
   const mounted = useIsMounted();
+  const clerkEnabled = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
-  const toggleTheme = () => {
-    if (theme === "dark") {
-      setTheme("light");
-    } else {
-      setTheme("dark");
-    }
-  };
+  const wsSlug = context.currentWorkspace.slug;
+  const issueMatch = pathname?.match(/\/issue\/([A-Za-z0-9]+-\d+)/);
 
   return (
-    <header className="flex h-12 w-full items-center justify-between border-b border-[var(--border)] bg-[var(--bg-base)] px-4 select-none z-20">
-      {/* Left: Breadcrumbs & Project Indicator */}
-      <div className="flex items-center gap-2 text-xs">
-        <div className="flex items-center gap-1.5 font-medium text-[var(--text)]">
-          <span className="flex h-5 w-5 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--accent)] text-[10px] font-mono-id font-bold text-[var(--accent-fg)]">
-            {currentProject.slice(0, 2)}
-          </span>
-          <span className="tracking-tight">{currentProject} Workspace</span>
-        </div>
+    <header className="z-20 flex h-12 w-full select-none items-center justify-between border-b border-[var(--border)] bg-[var(--bg-base)] px-4">
+      {/* Breadcrumbs */}
+      <div className="flex min-w-0 items-center gap-1.5 text-xs">
+        <Link
+          href={`/${wsSlug}`}
+          className="font-medium text-[var(--text)] transition-colors hover:text-[var(--accent)]"
+        >
+          {context.currentWorkspace.name}
+        </Link>
 
-        <ChevronRight className="h-3.5 w-3.5 text-[var(--text-subtle)]" />
+        {activeProject && (
+          <>
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--text-subtle)]" />
+            <Link
+              href={`/${wsSlug}/projects/${activeProject.slug}`}
+              className="truncate font-medium text-[var(--text)] transition-colors hover:text-[var(--accent)]"
+            >
+              {activeProject.name}
+            </Link>
+            <span className="hidden rounded border border-[var(--border)] bg-[var(--bg-inset)] px-1 py-px font-mono-id text-[9px] font-bold text-[var(--accent)] sm:inline">
+              {activeProject.key}
+            </span>
+          </>
+        )}
 
-        <span className="font-mono-id text-[var(--text-muted)] capitalize">
-          {activeView}
-        </span>
+        {(activeProject || issueMatch) && (
+          <>
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--text-subtle)]" />
+            <span className="font-mono-id text-[var(--text-muted)]">
+              {issueMatch ? issueMatch[1] : VIEW_LABELS[activeView] ?? activeView}
+            </span>
+          </>
+        )}
       </div>
 
-      {/* Center: Command Palette Trigger Button */}
+      {/* Command palette trigger */}
       <button
         onClick={onOpenCommandPalette}
-        className="flex items-center justify-between w-64 md:w-80 h-8 px-2.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-raised)] text-xs text-[var(--text-subtle)] hover:border-[var(--border-strong)] hover:text-[var(--text)] transition-colors focus-ring"
-        title="Open Command Palette (Cmd+K / Ctrl+K)"
+        title="Command palette (⌘K)"
+        className="hidden h-8 w-72 items-center justify-between rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] px-2.5 text-xs text-[var(--text-subtle)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)] focus-ring md:flex lg:w-80"
       >
-        <div className="flex items-center gap-2">
+        <span className="flex items-center gap-2">
           <Search className="h-3.5 w-3.5" strokeWidth={1.5} />
-          <span>Search issues, jump to view...</span>
-        </div>
-        <kbd className="hidden sm:inline-flex h-4 items-center gap-0.5 rounded-[2px] border border-[var(--border)] bg-[var(--bg-base)] px-1 font-mono-id text-[10px] text-[var(--text-subtle)]">
-          <span>⌘</span>K
+          <span>Search or jump to…</span>
+        </span>
+        <kbd className="inline-flex h-4 items-center gap-0.5 rounded border border-[var(--border)] bg-[var(--bg-base)] px-1 font-mono-id text-[10px]">
+          ⌘K
         </kbd>
       </button>
 
-      {/* Right: Actions, Live Avatars, Notifications, Theme Toggle */}
-      <div className="flex items-center gap-2">
-        {/* Quick Issue Create Button (C) */}
+      {/* Actions */}
+      <div className="flex items-center gap-1.5">
         <Button
           variant="primary"
           size="sm"
           onClick={onCreateIssue}
-          className="h-7 text-xs gap-1 shadow-[var(--shadow-sm)]"
-          title="Create Issue (C)"
+          title="New issue (C)"
+          className="gap-1.5"
         >
           <Plus className="h-3.5 w-3.5" strokeWidth={2} />
           <span className="hidden sm:inline">New Issue</span>
-          <kbd className="hidden md:inline-block ml-1 font-mono-id text-[9px] opacity-70">C</kbd>
+          <kbd className="ml-0.5 hidden font-mono-id text-[9px] opacity-60 md:inline">C</kbd>
         </Button>
 
-        {/* Live Presence Avatars in Topbar */}
-        <div className="hidden lg:flex items-center -space-x-1.5 overflow-hidden pl-2">
-          {onlineMembers.map((member) => (
-            <div
-              key={member.name}
-              title={`${member.name} is viewing`}
-              className={`relative rounded-full border-2 ${member.color} ring-1 ring-[var(--bg-base)] transition-transform hover:scale-110 hover:z-10`}
-            >
-              <Avatar fallback={member.fallback} size="xs" />
-              <span className="absolute bottom-0 right-0 h-1.5 w-1.5 rounded-full bg-[var(--success)] ring-1 ring-[var(--bg-base)]" />
-            </div>
-          ))}
-          <div className="pl-3 text-[11px] font-mono-id text-[var(--text-subtle)]">
-            3 live
-          </div>
-        </div>
+        <div className="mx-1 hidden h-4 w-px bg-[var(--border)] sm:block" />
 
-        <div className="h-4 w-[1px] bg-[var(--border)] mx-0.5 hidden sm:block" />
+        {/* Mobile command palette */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onOpenCommandPalette}
+          className="md:hidden"
+          title="Search (⌘K)"
+        >
+          <Search className="h-4 w-4" strokeWidth={1.5} />
+        </Button>
 
-        {/* Notification Inbox Drawer */}
-        <NotificationInbox />
+        <NotificationInbox workspaceSlug={wsSlug} />
 
-        {/* Dev Component Gallery Link */}
-        <Link href="/dev">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-[var(--text-muted)] hover:text-[var(--accent)]"
-            title="Design System & Component Gallery (/dev)"
-          >
-            <Code2 className="h-4 w-4" strokeWidth={1.5} />
-          </Button>
-        </Link>
-
-        {/* Keyboard Shortcuts Overlay Trigger */}
         <Button
           variant="ghost"
           size="icon"
           onClick={onOpenShortcuts}
-          className="h-8 w-8 text-[var(--text-muted)] hover:text-[var(--text)]"
           title="Keyboard shortcuts (?)"
         >
           <HelpCircle className="h-4 w-4" strokeWidth={1.5} />
         </Button>
 
-        {/* Theme Toggle Button */}
         {mounted && (
           <Button
             variant="ghost"
             size="icon"
-            onClick={toggleTheme}
-            className="h-8 w-8 text-[var(--text-muted)] hover:text-[var(--text)]"
-            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+            title={`Switch to ${resolvedTheme === "dark" ? "light" : "dark"} mode`}
           >
-            {theme === "dark" ? (
+            {resolvedTheme === "dark" ? (
               <Sun className="h-4 w-4 text-[var(--warning)]" strokeWidth={1.5} />
             ) : (
               <Moon className="h-4 w-4 text-[var(--accent)]" strokeWidth={1.5} />
@@ -166,10 +162,24 @@ export function Topbar({
           </Button>
         )}
 
-        {/* User Avatar */}
-        <div className="ml-1">
-          <Avatar fallback="AK" size="sm" className="bg-[var(--accent-soft)] text-[var(--accent)] font-semibold cursor-pointer" />
-        </div>
+        {/* Account */}
+        {clerkEnabled ? (
+          <div className="ml-1 scale-90">
+            <UserButton />
+          </div>
+        ) : (
+          <div
+            title={`${context.currentUser.name ?? "Local developer"} · local dev mode`}
+            className="ml-1 flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--palette-purple)] font-semibold text-white"
+          >
+            {(context.currentUser.name ?? "L")
+              .split(" ")
+              .map((p) => p[0])
+              .slice(0, 2)
+              .join("")
+              .toUpperCase()}
+          </div>
+        )}
       </div>
     </header>
   );
