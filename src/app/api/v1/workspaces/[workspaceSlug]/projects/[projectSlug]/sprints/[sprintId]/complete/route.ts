@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/api/auth";
 import { completeSprint } from "@/lib/api/sprints";
 import { completeSprintSchema } from "@/lib/validation/sprint";
-import { z } from "zod";
+import { apiDataError, apiUnauthorized } from "@/lib/api/response";
 
 interface RouteProps {
   params: Promise<{
@@ -13,30 +13,24 @@ interface RouteProps {
 }
 
 export async function POST(req: NextRequest, { params }: RouteProps) {
-  const { sprintId } = await params;
   const actor = await getCurrentUser();
-
-  if (!actor) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!actor) return apiUnauthorized();
 
   try {
-    const body = await req.json();
-    const parsed = completeSprintSchema.parse(body);
+    const { sprintId } = await params;
+    const parsed = completeSprintSchema.parse(await req.json().catch(() => ({})));
 
-    const completed = await completeSprint({
+    const sprint = await completeSprint({
       sprintId,
       incompleteAction: parsed.incompleteAction,
       nextSprintId: parsed.nextSprintId,
-      userId: actor.user.id,
     });
 
-    return NextResponse.json({ sprint: completed });
+    return NextResponse.json({ sprint });
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: "Invalid payload", details: error.issues }, { status: 400 });
+    if (error instanceof Error && error.message.includes("Sprint")) {
+      return Response.json({ error: error.message }, { status: 400 });
     }
-    console.error("Failed to complete sprint:", error);
-    return NextResponse.json({ error: "Failed to complete sprint" }, { status: 500 });
+    return apiDataError("complete sprint", error);
   }
 }

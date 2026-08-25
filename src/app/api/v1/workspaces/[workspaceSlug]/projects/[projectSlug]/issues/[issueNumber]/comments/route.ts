@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/api/auth";
-import { getIssueByKey, moveIssue } from "@/lib/api/issues";
-import { moveIssueSchema } from "@/lib/validation/issue";
+import { getIssueByKey, addComment } from "@/lib/api/issues";
+import { createCommentSchema } from "@/lib/validation/issue";
 import { apiDataError, apiNotFound, apiUnauthorized } from "@/lib/api/response";
 
 interface RouteProps {
@@ -23,26 +23,23 @@ export async function POST(req: NextRequest, { params }: RouteProps) {
       return Response.json({ error: "Invalid issue number" }, { status: 400 });
     }
 
-    const existing = await getIssueByKey({
+    const issue = await getIssueByKey({
       workspaceSlug,
       projectKey: projectSlug,
       number: num,
     });
-    if (!existing) return apiNotFound("Issue");
+    if (!issue) return apiNotFound("Issue");
 
-    const parsed = moveIssueSchema.parse(await req.json());
+    const parsed = createCommentSchema.parse(await req.json());
 
-    const updated = await moveIssue({
-      issueId: existing.id,
-      targetStatusId: parsed.targetStatusId,
-      previousSortOrder: parsed.previousIssueSortOrder,
-      nextSortOrder: parsed.nextIssueSortOrder,
+    const comment = await addComment({
+      issueId: issue.id,
       userId: actor.user.id,
-      actorName: actor.user.name ?? "Someone",
+      body: parsed.body,
     });
 
-    return NextResponse.json({ issue: updated });
+    return NextResponse.json({ comment }, { status: 201 });
   } catch (error) {
-    return apiDataError("move issue", error);
+    return apiDataError("add comment", error);
   }
 }

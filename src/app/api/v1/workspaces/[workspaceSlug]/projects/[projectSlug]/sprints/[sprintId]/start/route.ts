@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/api/auth";
 import { startSprint } from "@/lib/api/sprints";
+import { apiDataError, apiUnauthorized } from "@/lib/api/response";
 
 interface RouteProps {
   params: Promise<{
@@ -10,20 +11,19 @@ interface RouteProps {
   }>;
 }
 
-export async function POST(req: NextRequest, { params }: RouteProps) {
-  const { sprintId } = await params;
+export async function POST(_req: NextRequest, { params }: RouteProps) {
   const actor = await getCurrentUser();
-
-  if (!actor) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!actor) return apiUnauthorized();
 
   try {
-    const sprint = await startSprint(sprintId, actor.user.id);
+    const { sprintId } = await params;
+    const sprint = await startSprint(sprintId);
     return NextResponse.json({ sprint });
-  } catch (error: unknown) {
-    console.error("Failed to start sprint:", error);
-    const message = error instanceof Error ? error.message : "Failed to start sprint";
-    return NextResponse.json({ error: message }, { status: 400 });
+  } catch (error) {
+    // Domain rule violations (e.g. another sprint active) are client errors
+    if (error instanceof Error && !/^\[/.test(error.message)) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+    return apiDataError("start sprint", error);
   }
 }
