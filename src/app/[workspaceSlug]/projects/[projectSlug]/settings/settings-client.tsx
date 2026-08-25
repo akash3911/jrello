@@ -2,284 +2,260 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { GitBranch, Check, Copy } from "lucide-react";
-import { AppShell } from "@/components/shell/AppShell";
+import { Copy, Check, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
-import {
-  type ProjectData,
-  type CurrentUserData,
-} from "../board-client";
-
-interface SettingsClientProps {
-  project: ProjectData;
-  workspaceSlug: string;
-  currentUser: CurrentUserData | null;
-}
+import { initialsOf } from "@/lib/format";
+import type { ProjectDetailClient } from "@/lib/types";
 
 export default function ProjectSettingsClient({
   project,
   workspaceSlug,
-}: SettingsClientProps) {
+}: {
+  project: ProjectDetailClient;
+  workspaceSlug: string;
+}) {
   const router = useRouter();
   const [name, setName] = React.useState(project.name);
-  const [description, setDescription] = React.useState(project.description || "");
-  const [repoFullName, setRepoFullName] = React.useState("akash3911/jrello");
-  const [copiedWebhook, setCopiedWebhook] = React.useState(false);
+  const [description, setDescription] = React.useState(project.description ?? "");
   const [saving, setSaving] = React.useState(false);
-  const [savedSuccess, setSavedSuccess] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  const [confirmDelete, setConfirmDelete] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
 
-  const webhookUrl = typeof window !== "undefined"
-    ? `${window.location.origin}/api/webhooks/github`
-    : "http://localhost:3000/api/webhooks/github";
+  const webhookUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/api/webhooks/github`
+      : "/api/webhooks/github";
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const save = async () => {
+    if (name.trim().length < 2) return;
     setSaving(true);
-    setSavedSuccess(false);
-
+    setSaved(false);
     try {
       const res = await fetch(
         `/api/v1/workspaces/${workspaceSlug}/projects/${project.slug}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, description }),
+          body: JSON.stringify({ name: name.trim(), description }),
         }
       );
-
-      if (res.ok) {
-        setSavedSuccess(true);
-        setTimeout(() => setSavedSuccess(false), 2000);
-      }
-    } catch (err) {
-      console.error(err);
+      if (!res.ok) throw new Error();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2200);
+      router.refresh();
+    } catch {
+      /* keep form state; surface nothing fancy */
     } finally {
       setSaving(false);
     }
   };
 
-  const copyWebhook = () => {
-    navigator.clipboard.writeText(webhookUrl);
-    setCopiedWebhook(true);
-    setTimeout(() => setCopiedWebhook(false), 2000);
+  const copyWebhook = async () => {
+    await navigator.clipboard.writeText(webhookUrl).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
   };
 
-  const handleDeleteProject = async () => {
-    if (!confirm(`Are you sure you want to delete "${project.name}"? This action cannot be undone.`)) {
-      return;
-    }
-
+  const deleteProject = async () => {
+    setDeleting(true);
     try {
       const res = await fetch(
         `/api/v1/workspaces/${workspaceSlug}/projects/${project.slug}`,
         { method: "DELETE" }
       );
-      if (res.ok) {
-        router.push(`/${workspaceSlug}`);
-      }
-    } catch (err) {
-      console.error(err);
+      if (res.ok) router.push(`/${workspaceSlug}`);
+    } finally {
+      setDeleting(false);
     }
   };
 
   return (
-    <AppShell>
-      <div className="flex h-full flex-col min-w-0 bg-[var(--bg-base)] overflow-y-auto">
-        <div className="max-w-3xl w-full mx-auto px-6 py-8 flex flex-col gap-8">
-          {/* Header */}
-          <div className="flex flex-col gap-1 border-b border-[var(--border)] pb-4">
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-semibold text-[var(--text)] tracking-tight">
-                Project Settings
-              </h1>
-              <Badge variant="mono" size="sm">
-                {project.key}
-              </Badge>
-            </div>
-            <p className="text-xs text-[var(--text-muted)]">
-              Manage configuration, issue identifier prefixes, and GitHub repository links for {project.name}.
-            </p>
-          </div>
-
-          {/* Form */}
-          <form onSubmit={handleSave} className="flex flex-col gap-6">
-            <div className="p-5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] flex flex-col gap-4">
-              <h2 className="text-xs font-semibold text-[var(--text-subtle)] uppercase">
-                General Information
-              </h2>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--text-subtle)] uppercase">
-                  Project Name
-                </label>
-                <Input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Core Platform"
-                  required
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--text-subtle)] uppercase">
-                  Issue Key Identifier
-                </label>
-                <Input
-                  value={project.key}
-                  disabled
-                  className="font-mono-id bg-[var(--bg-base)] opacity-70"
-                />
-                <span className="text-[11px] text-[var(--text-subtle)]">
-                  Key prefix cannot be modified after project creation to prevent broken git branch links.
-                </span>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--text-subtle)] uppercase">
-                  Description
-                </label>
-                <textarea
-                  rows={3}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Short description of this codebase or feature unit..."
-                  className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-base)] p-2.5 text-xs text-[var(--text)] placeholder:text-[var(--text-subtle)] focus-ring outline-none resize-none"
-                />
-              </div>
-
-              <div className="flex items-center justify-between pt-3 border-t border-[var(--border)]">
-                {savedSuccess ? (
-                  <span className="text-xs text-[var(--success)] font-medium">
-                    Changes saved successfully
-                  </span>
-                ) : (
-                  <span />
-                )}
-
-                <Button
-                  variant="primary"
-                  size="sm"
-                  type="submit"
-                  disabled={saving}
-                  className="text-xs"
-                >
-                  {saving ? "Saving..." : "Save Changes"}
-                </Button>
-              </div>
-            </div>
-
-            {/* GitHub Repository Connection Section (Phase 7) */}
-            <div className="p-5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] flex flex-col gap-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <GitBranch className="h-4 w-4 text-[var(--accent)]" />
-                  <h2 className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
-                    GitHub Repository Link
-                  </h2>
-                </div>
-                <Badge variant="accent" size="sm">
-                  Phase 7 Wired
-                </Badge>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--text-subtle)] uppercase">
-                  Primary Repository
-                </label>
-                <Input
-                  value={repoFullName}
-                  onChange={(e) => setRepoFullName(e.target.value)}
-                  placeholder="owner/repo (e.g. acme/jrello)"
-                  className="font-mono-id"
-                />
-                <span className="text-[11px] text-[var(--text-subtle)]">
-                  Branches and PRs mentioning <code className="font-bold">{project.key}-*</code> in this repo will automatically associate with issues.
-                </span>
-              </div>
-
-              {/* Webhook Endpoint Box */}
-              <div className="flex flex-col gap-1.5 pt-2">
-                <label className="text-xs font-semibold text-[var(--text-subtle)] uppercase">
-                  Inbound Webhook URL
-                </label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={webhookUrl}
-                    readOnly
-                    className="font-mono-id text-xs bg-[var(--bg-base)]"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    type="button"
-                    onClick={copyWebhook}
-                    className="text-xs gap-1.5 shrink-0"
-                  >
-                    {copiedWebhook ? (
-                      <>
-                        <Check className="h-3.5 w-3.5 text-[var(--success)]" />
-                        <span>Copied</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="h-3.5 w-3.5" />
-                        <span>Copy URL</span>
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            {/* Team Members Section */}
-            <div className="p-5 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] flex flex-col gap-4">
-              <h2 className="text-xs font-semibold text-[var(--text-subtle)] uppercase">
-                Project Roster
-              </h2>
-              <div className="divide-y divide-[var(--border)]/50">
-                <div className="flex items-center justify-between py-2 text-xs">
-                  <div className="flex items-center gap-2.5">
-                    <Avatar fallback="ME" size="xs" />
-                    <span className="font-medium text-[var(--text)]">Project Owner</span>
-                  </div>
-                  <Badge variant="accent" size="sm">ADMIN</Badge>
-                </div>
-                <div className="flex items-center justify-between py-2 text-xs">
-                  <div className="flex items-center gap-2.5">
-                    <Avatar fallback="SC" size="xs" />
-                    <span className="font-medium text-[var(--text)]">Sarah Chen</span>
-                  </div>
-                  <Badge variant="default" size="sm">MEMBER</Badge>
-                </div>
-              </div>
-            </div>
-
-            {/* Danger Zone */}
-            <div className="p-5 rounded-[var(--radius-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)]/20 flex flex-col gap-3">
-              <h2 className="text-xs font-semibold text-[var(--danger)] uppercase tracking-wider">
-                Danger Zone
-              </h2>
-              <p className="text-xs text-[var(--text-muted)]">
-                Permanently remove this project, custom columns, issue numbers, and sprints.
-              </p>
-              <div className="flex justify-start pt-1">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  type="button"
-                  onClick={handleDeleteProject}
-                  className="bg-[var(--danger)] hover:bg-[var(--danger-hover)] text-[var(--danger-fg)] text-xs"
-                >
-                  Delete Project
-                </Button>
-              </div>
-            </div>
-          </form>
-        </div>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 py-8">
+      {/* Header */}
+      <div className="border-b border-[var(--border)] pb-4">
+        <h1 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
+          Project Settings
+          <Badge variant="mono">{project.key}</Badge>
+        </h1>
+        <p className="text-xs text-[var(--text-muted)]">
+          Configure {project.name} and manage its team.
+        </p>
       </div>
-    </AppShell>
+
+      {/* General */}
+      <section className="flex flex-col gap-4 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] p-5 shadow-[var(--shadow-xs)]">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-subtle)]">
+          General
+        </h2>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-subtle)]">
+            Project name
+          </span>
+          <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-subtle)]">
+            Issue key (immutable)
+          </span>
+          <Input
+            value={project.key}
+            disabled
+            className="font-mono-id opacity-70"
+          />
+          <span className="text-[10px] text-[var(--text-subtle)]">
+            Keys are permanent so issue references like {project.key}-101 never break.
+          </span>
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-subtle)]">
+            Description
+          </span>
+          <textarea
+            rows={3}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What is this project about?"
+            className="w-full resize-none rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-base)] p-2.5 text-xs outline-none placeholder:text-[var(--text-subtle)] focus-ring"
+          />
+        </label>
+
+        <div className="flex items-center justify-between border-t border-[var(--border)] pt-3">
+          <span className={`text-xs ${saved ? "text-[var(--success)]" : "text-transparent"}`}>
+            Saved ✓
+          </span>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => void save()}
+            disabled={saving || name.trim().length < 2}
+            className="gap-1.5"
+          >
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Save changes
+          </Button>
+        </div>
+      </section>
+
+      {/* Workflow */}
+      <section className="flex flex-col gap-3 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] p-5 shadow-[var(--shadow-xs)]">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-subtle)]">
+          Board columns
+        </h2>
+        <ul className="flex flex-wrap gap-2">
+          {project.statuses.map((s) => (
+            <li
+              key={s.id}
+              className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-base)] px-2.5 py-1.5 text-xs"
+            >
+              <span className="font-medium text-[var(--text)]">{s.name}</span>
+              {s.isDefault && (
+                <Badge variant="accent" size="xs">
+                  default
+                </Badge>
+              )}
+              <span className="font-mono-id text-[9px] text-[var(--text-subtle)]">
+                pos {s.position}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/* Members */}
+      <section className="flex flex-col gap-3 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] p-5 shadow-[var(--shadow-xs)]">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-subtle)]">
+          Team ({project.members.length})
+        </h2>
+        <ul className="divide-y divide-[var(--border)]/60">
+          {project.members.map((m) => (
+            <li key={m.id} className="flex items-center justify-between py-2 text-xs">
+              <span className="flex items-center gap-2.5">
+                <Avatar src={m.user.avatarUrl} fallback={initialsOf(m.user.name)} size="sm" />
+                <span>
+                  <b className="block font-semibold text-[var(--text)]">
+                    {m.user.name ?? m.user.email}
+                  </b>
+                  <span className="block text-[10px] text-[var(--text-subtle)]">
+                    {m.user.email}
+                  </span>
+                </span>
+              </span>
+              <Badge variant={m.role === "ADMIN" ? "accent" : "default"} size="sm">
+                {m.role}
+              </Badge>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/* GitHub */}
+      <section className="flex flex-col gap-3 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] p-5 shadow-[var(--shadow-xs)]">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-subtle)]">
+          GitHub integration
+        </h2>
+        <p className="text-xs leading-relaxed text-[var(--text-muted)]">
+          Point a GitHub webhook at the endpoint below and commits or PRs mentioning{" "}
+          <code className="rounded bg-[var(--bg-inset)] px-1 font-mono-id text-[11px] font-bold text-[var(--accent)]">
+            {project.key}-*
+          </code>{" "}
+          will be linked to issues automatically.
+        </p>
+        <div className="flex items-center gap-2">
+          <Input value={webhookUrl} readOnly className="font-mono-id bg-[var(--bg-base)]" />
+          <Button variant="secondary" size="sm" onClick={() => void copyWebhook()} className="shrink-0 gap-1.5">
+            {copied ? (
+              <>
+                <Check className="h-3.5 w-3.5 text-[var(--success)]" /> Copied
+              </>
+            ) : (
+              <>
+                <Copy className="h-3.5 w-3.5" /> Copy URL
+              </>
+            )}
+          </Button>
+        </div>
+      </section>
+
+      {/* Danger zone */}
+      <section className="rounded-[var(--radius-md)] border border-[var(--danger)]/30 bg-[var(--danger-soft)]/30 p-5">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--danger-fg)]">
+          Danger zone
+        </h2>
+        <p className="mt-1 text-xs text-[var(--text-muted)]">
+          Permanently delete this project with all its issues, columns and sprints. This
+          cannot be undone.
+        </p>
+        <div className="mt-3">
+          {confirmDelete ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--danger)]/40 bg-[var(--bg-raised)] px-3 py-2.5">
+              <span className="text-xs font-medium">
+                Type-to-confirm is off — are you absolutely sure?
+              </span>
+              <span className="ml-auto flex gap-2">
+                <Button size="xs" variant="ghost" onClick={() => setConfirmDelete(false)}>
+                  Cancel
+                </Button>
+                <Button size="xs" variant="danger" onClick={() => void deleteProject()} className="gap-1">
+                  {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                  Delete forever
+                </Button>
+              </span>
+            </div>
+          ) : (
+            <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)} className="gap-1.5">
+              <Trash2 className="h-3.5 w-3.5" /> Delete project…
+            </Button>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }

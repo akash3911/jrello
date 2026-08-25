@@ -2,297 +2,223 @@
 
 import * as React from "react";
 import { Search } from "lucide-react";
-import { AppShell, type IssueCreatePayload } from "@/components/shell/AppShell";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Avatar } from "@/components/ui/avatar";
 import { PriorityBadge } from "@/components/ui/priority-badge";
 import { StatusBadge, type StatusKind } from "@/components/ui/status-badge";
-import {
-  IssueDetailPanel,
-  type IssueItem,
-} from "@/components/board/IssueDetailPanel";
-import {
-  type ProjectData,
-  type CurrentUserData,
-} from "../board-client";
+import { IssueDetailPanel } from "@/components/board/IssueDetailPanel";
+import { relativeTime, initialsOf } from "@/lib/format";
+import type { ProjectMemberClient } from "@/lib/types";
+import type { PriorityLevel } from "@/components/ui/priority-badge";
 import { cn } from "@/lib/utils";
 
-interface IssuesListClientProps {
-  project: ProjectData;
-  workspaceSlug: string;
-  currentUser: CurrentUserData | null;
+interface Row {
+  id: string;
+  key: string;
+  title: string;
+  statusKind: StatusKind;
+  priority: PriorityLevel;
+  assignee: { id: string; name: string | null; avatarUrl: string | null } | null;
+  estimate: number | null;
+  commentsCount: number;
+  updatedAt: string;
 }
 
-export default function ProjectIssuesListClient({
-  project,
-  currentUser,
-}: IssuesListClientProps) {
-  const [issues, setIssues] = React.useState<IssueItem[]>(() => {
-    return (project.issues || []).map((i) => ({
-      id: i.id,
-      key: `${project.key}-${i.number}`,
-      title: i.title,
-      description: i.description || "",
-      status: i.status.kind,
-      priority: i.priority,
-      assignee: i.assignee
-        ? {
-            name: i.assignee.name || "User",
-            avatar: i.assignee.avatarUrl,
-            initials: (i.assignee.name || "U").slice(0, 2).toUpperCase(),
-          }
-        : { name: "Unassigned", initials: "UA" },
-      labels: ["project"],
-      branchName: `feat/${project.key.toLowerCase()}-${i.number}`,
-      commentsCount: 0,
-      createdAt: new Date(i.createdAt).toLocaleDateString(),
-      updatedAt: new Date(i.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      estimate: i.estimate ? `${i.estimate} pts` : "3 pts",
-    }));
-  });
-
-  const [selectedIssue, setSelectedIssue] = React.useState<IssueItem | null>(null);
-  const [selectedIndex, setSelectedIndex] = React.useState<number>(0);
+export default function IssuesListClient({
+  rows,
+  workspaceSlug,
+  members,
+}: {
+  rows: Row[];
+  workspaceSlug: string;
+  members: ProjectMemberClient[];
+}) {
   const [searchQuery, setSearchQuery] = React.useState("");
-  const [statusFilter, setStatusFilter] = React.useState<string>("ALL");
-  const [priorityFilter, setPriorityFilter] = React.useState<string>("ALL");
+  const [statusFilter, setStatusFilter] = React.useState("ALL");
+  const [priorityFilter, setPriorityFilter] = React.useState("ALL");
+  const [selectedIndex, setSelectedIndex] = React.useState(0);
+  const [openKey, setOpenKey] = React.useState<string | null>(null);
 
-  const filteredIssues = React.useMemo(() => {
-    return issues.filter((issue) => {
-      const matchesSearch =
-        issue.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        issue.key.toLowerCase().includes(searchQuery.toLowerCase());
+  const filtered = React.useMemo(
+    () =>
+      rows.filter((r) => {
+        const q = searchQuery.trim().toLowerCase();
+        const matchesSearch =
+          !q || r.title.toLowerCase().includes(q) || r.key.toLowerCase().includes(q);
+        const matchesStatus = statusFilter === "ALL" || r.statusKind === statusFilter;
+        const matchesPriority =
+          priorityFilter === "ALL" || r.priority === priorityFilter;
+        return matchesSearch && matchesStatus && matchesPriority;
+      }),
+    [rows, searchQuery, statusFilter, priorityFilter]
+  );
 
-      const matchesStatus =
-        statusFilter === "ALL" || issue.status === statusFilter;
+  // Clamp selection when filters shrink the result set (no cascading state)
+  const activeIndex = Math.min(selectedIndex, Math.max(0, filtered.length - 1));
 
-      const matchesPriority =
-        priorityFilter === "ALL" || issue.priority === priorityFilter;
-
-      return matchesSearch && matchesStatus && matchesPriority;
-    });
-  }, [issues, searchQuery, statusFilter, priorityFilter]);
-
-  // Keyboard navigation for table rows (J/K and Enter)
+  // Keyboard nav
   React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const activeTag = (document.activeElement?.tagName || "").toLowerCase();
-      if (activeTag === "input" || activeTag === "textarea" || activeTag === "select") {
+    const handler = (e: KeyboardEvent) => {
+      const el = document.activeElement as HTMLElement | null;
+      if (
+        el &&
+        ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName)
+      ) {
         return;
       }
-
-      if (e.key === "j" || e.key === "J") {
+      if (e.key === "j" || e.key === "J" || e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedIndex((prev) => Math.min(prev + 1, Math.max(0, filteredIssues.length - 1)));
-      } else if (e.key === "k" || e.key === "K") {
+        setSelectedIndex((i) => Math.min(i + 1, filtered.length - 1));
+      } else if (e.key === "k" || e.key === "K" || e.key === "ArrowUp") {
         e.preventDefault();
-        setSelectedIndex((prev) => Math.max(0, prev - 1));
-      } else if (e.key === "Enter" && filteredIssues[selectedIndex]) {
+        setSelectedIndex((i) => Math.max(0, i - 1));
+      } else if (e.key === "Enter" && filtered[activeIndex]) {
         e.preventDefault();
-        setSelectedIssue(filteredIssues[selectedIndex]);
+        setOpenKey(filtered[activeIndex].key);
       }
     };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [filteredIssues, selectedIndex]);
-
-  const handleCreateIssueSubmit = (newIssueData: IssueCreatePayload) => {
-    const nextNumber = issues.length + 101;
-    const newIssue: IssueItem = {
-      id: `issue-${nextNumber}`,
-      key: `${project.key}-${nextNumber}`,
-      title: newIssueData.title,
-      description: newIssueData.description || "Created from list composer.",
-      status: newIssueData.status,
-      priority: newIssueData.priority,
-      assignee: currentUser
-        ? {
-            name: currentUser.name || "You",
-            initials: (currentUser.name || "ME").slice(0, 2).toUpperCase(),
-          }
-        : { name: "Assignee", initials: "ME" },
-      labels: ["feature"],
-      branchName: `feat/${project.key.toLowerCase()}-${nextNumber}`,
-      commentsCount: 0,
-      createdAt: "Just now",
-      updatedAt: "Just now",
-      estimate: newIssueData.estimate || "3 pts",
-    };
-
-    setIssues((prev) => [newIssue, ...prev]);
-  };
-
-  const handleMoveIssue = (issueId: string, targetStatus: StatusKind) => {
-    setIssues((prev) =>
-      prev.map((item) =>
-        item.id === issueId ? { ...item, status: targetStatus, updatedAt: "Just now" } : item
-      )
-    );
-    if (selectedIssue && selectedIssue.id === issueId) {
-      setSelectedIssue((prev) => (prev ? { ...prev, status: targetStatus } : null));
-    }
-  };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [filtered, selectedIndex, activeIndex]);
 
   return (
-    <AppShell onCreateIssueSubmit={handleCreateIssueSubmit}>
-      <div className="flex h-full flex-col min-w-0 bg-[var(--bg-base)]">
-        {/* List Header */}
-        <div className="flex flex-col gap-3 px-6 py-4 border-b border-[var(--border)] bg-[var(--bg-base)]">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-fg)] font-mono-id font-bold text-sm">
-                {project.key}
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-lg font-semibold text-[var(--text)] tracking-tight">
-                    {project.name} Issues
-                  </h1>
-                  <Badge variant="mono" size="sm">
-                    {filteredIssues.length} Items
-                  </Badge>
-                </div>
-                <p className="text-xs text-[var(--text-muted)]">
-                  Filterable list view. Use <kbd className="px-1 py-0.5 rounded border border-[var(--border)] font-mono-id text-[10px]">J</kbd> / <kbd className="px-1 py-0.5 rounded border border-[var(--border)] font-mono-id text-[10px]">K</kbd> to navigate, <kbd className="px-1 py-0.5 rounded border border-[var(--border)] font-mono-id text-[10px]">Enter</kbd> to open.
-                </p>
-              </div>
-            </div>
+    <div className="flex h-full min-w-0 flex-col">
+      {/* Toolbar */}
+      <div className="flex flex-col gap-3 border-b border-[var(--border)] bg-[var(--bg-base)] px-6 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-0.5">
+          <div className="flex max-w-sm flex-1 items-center gap-2">
+            <Input
+              id="issues-search"
+              leftIcon={<Search className="h-3.5 w-3.5" strokeWidth={1.5} />}
+              value={searchQuery}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+              placeholder="Search issues… (/)"
+              className="h-8 bg-[var(--bg-raised)]"
+            />
           </div>
-
-          {/* Filter Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
-            <div className="flex items-center gap-2 flex-1 max-w-md">
-              <Input
-                leftIcon={<Search className="h-3.5 w-3.5" strokeWidth={1.5} />}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search issues in this project (press /)..."
-                className="h-8 text-xs bg-[var(--bg-raised)]"
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              {/* Status Filter */}
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="h-8 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-raised)] px-2.5 text-xs text-[var(--text)] focus-ring outline-none"
-              >
-                <option value="ALL">All Statuses</option>
-                <option value="BACKLOG">Backlog</option>
-                <option value="TODO">Todo</option>
-                <option value="IN_PROGRESS">In Progress</option>
-                <option value="IN_REVIEW">In Review</option>
-                <option value="DONE">Done</option>
-              </select>
-
-              {/* Priority Filter */}
-              <select
-                value={priorityFilter}
-                onChange={(e) => setPriorityFilter(e.target.value)}
-                className="h-8 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-raised)] px-2.5 text-xs text-[var(--text)] focus-ring outline-none"
-              >
-                <option value="ALL">All Priorities</option>
-                <option value="URGENT">Urgent</option>
-                <option value="HIGH">High</option>
-                <option value="MEDIUM">Medium</option>
-                <option value="LOW">Low</option>
-                <option value="NONE">None</option>
-              </select>
-            </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="h-8 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-raised)] px-2 text-xs text-[var(--text)] outline-none focus-ring"
+            >
+              <option value="ALL">All statuses</option>
+              <option value="BACKLOG">Backlog</option>
+              <option value="TODO">Todo</option>
+              <option value="IN_PROGRESS">In Progress</option>
+              <option value="IN_REVIEW">In Review</option>
+              <option value="DONE">Done</option>
+              <option value="CANCELED">Canceled</option>
+            </select>
+            <select
+              value={priorityFilter}
+              onChange={(e) => setPriorityFilter(e.target.value)}
+              className="h-8 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-raised)] px-2 text-xs text-[var(--text)] outline-none focus-ring"
+            >
+              <option value="ALL">All priorities</option>
+              <option value="URGENT">Urgent</option>
+              <option value="HIGH">High</option>
+              <option value="MEDIUM">Medium</option>
+              <option value="LOW">Low</option>
+              <option value="NONE">None</option>
+            </select>
+            <Badge variant="mono" size="sm">
+              {filtered.length} / {rows.length}
+            </Badge>
           </div>
         </div>
+      </div>
 
-        {/* Dense Table Container (32–36px rows per DESIGN-SYSTEM.md) */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
-          <div className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] overflow-hidden shadow-none">
-            {/* Table Header */}
-            <div className="grid grid-cols-12 gap-3 px-4 py-2 border-b border-[var(--border)] bg-[var(--bg-base)] text-[11px] font-semibold text-[var(--text-subtle)] uppercase tracking-wider select-none">
-              <div className="col-span-2">Key</div>
-              <div className="col-span-5">Title</div>
-              <div className="col-span-2">Status</div>
-              <div className="col-span-1">Priority</div>
-              <div className="col-span-2 text-right">Assignee</div>
+      {/* Table */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+        <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] shadow-[var(--shadow-xs)]">
+          <div className="grid select-none grid-cols-[110px_1fr_120px_90px_150px_70px] items-center gap-3 border-b border-[var(--border)] bg-[var(--bg-base)] px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-subtle)]">
+            <span>Key</span>
+            <span>Title</span>
+            <span>Status</span>
+            <span>Priority</span>
+            <span className="text-right">Assignee</span>
+            <span className="text-right">Updated</span>
+          </div>
+
+          {filtered.length === 0 ? (
+            <div className="py-14 text-center text-xs font-mono-id text-[var(--text-muted)]">
+              No issues match your filters.
             </div>
-
-            {/* Table Rows */}
-            {filteredIssues.length === 0 ? (
-              <div className="py-12 text-center text-xs text-[var(--text-muted)] font-mono-id">
-                No issues match your current filters.
-              </div>
-            ) : (
-              <div className="divide-y divide-[var(--border)]/50">
-                {filteredIssues.map((issue, index) => {
-                  const isSelected = index === selectedIndex;
-                  return (
-                    <div
-                      key={issue.id}
-                      onClick={() => {
-                        setSelectedIndex(index);
-                        setSelectedIssue(issue);
-                      }}
-                      onMouseEnter={() => setSelectedIndex(index)}
-                      className={cn(
-                        "grid grid-cols-12 gap-3 px-4 py-2.5 text-xs items-center cursor-pointer transition-colors select-none",
-                        isSelected
-                          ? "bg-[var(--accent-soft)] text-[var(--accent)] font-medium"
-                          : "hover:bg-[var(--bg-overlay)] text-[var(--text)]"
-                      )}
-                    >
-                      {/* Key */}
-                      <div className="col-span-2 flex items-center gap-1.5">
-                        <Badge variant="mono" size="sm">
-                          {issue.key}
-                        </Badge>
-                      </div>
-
-                      {/* Title */}
-                      <div className="col-span-5 truncate font-medium">
-                        {issue.title}
-                      </div>
-
-                      {/* Status */}
-                      <div className="col-span-2">
-                        <StatusBadge status={issue.status} size="sm" />
-                      </div>
-
-                      {/* Priority */}
-                      <div className="col-span-1">
-                        <PriorityBadge priority={issue.priority} showLabel={false} size="sm" />
-                      </div>
-
-                      {/* Assignee */}
-                      <div className="col-span-2 flex items-center justify-end gap-1.5">
-                        <span className="text-[11px] text-[var(--text-muted)] truncate">
-                          {issue.assignee.name}
+          ) : (
+            <div className="divide-y divide-[var(--border)]/60">
+              {filtered.map((issue, index) => (
+                <div
+                  key={issue.id}
+                  onClick={() => {
+                    setSelectedIndex(index);
+                    setOpenKey(issue.key);
+                  }}
+                  onMouseEnter={() => setSelectedIndex(index)}
+                  data-issue-id={issue.id}
+                  className={cn(
+                    "grid cursor-pointer grid-cols-[110px_1fr_120px_90px_150px_70px] items-center gap-3 px-4 py-2 text-xs transition-colors select-none",
+                    index === activeIndex
+                      ? "bg-[var(--accent-soft)]/60"
+                      : "hover:bg-[var(--bg-overlay)]"
+                  )}
+                >
+                  <span className="font-mono-id text-[11px] font-bold text-[var(--text-subtle)]">
+                    {issue.key}
+                  </span>
+                  <span className="truncate font-medium text-[var(--text)]">
+                    {issue.title}
+                  </span>
+                  <span>
+                    <StatusBadge status={issue.statusKind} size="sm" />
+                  </span>
+                  <span>
+                    <PriorityBadge priority={issue.priority} showLabel={false} size="sm" />
+                  </span>
+                  <span className="flex items-center justify-end gap-1.5 overflow-hidden">
+                    {issue.assignee ? (
+                      <>
+                        <span className="max-w-24 truncate text-[11px] text-[var(--text-muted)]">
+                          {issue.assignee.name ?? "Member"}
                         </span>
                         <Avatar
-                          fallback={issue.assignee.initials}
+                          src={issue.assignee.avatarUrl}
+                          fallback={initialsOf(issue.assignee.name)}
                           size="xs"
-                          className="bg-[var(--accent-soft)] text-[var(--accent)] font-semibold"
                         />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                      </>
+                    ) : (
+                      <span className="text-[11px] italic text-[var(--text-subtle)]">
+                        Unassigned
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-right font-mono-id text-[10px] text-[var(--text-subtle)]">
+                    {relativeTime(issue.updatedAt)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Slide-over Issue Detail Panel */}
-        <IssueDetailPanel
-          issue={selectedIssue}
-          onClose={() => setSelectedIssue(null)}
-          onUpdateStatus={(newStatus) => {
-            if (selectedIssue) {
-              handleMoveIssue(selectedIssue.id, newStatus);
-            }
-          }}
-        />
+        <p className="mt-3 text-center font-mono-id text-[10px] text-[var(--text-subtle)]">
+          J K navigate · Enter open · click any row for details
+        </p>
       </div>
-    </AppShell>
+
+      {/* Detail panel */}
+      <IssueDetailPanel
+        issueKey={openKey}
+        workspaceSlug={workspaceSlug}
+        members={members}
+        onClose={() => setOpenKey(null)}
+        onChanged={() => {
+          /* Server components re-fetch on refresh */
+        }}
+        onDeleted={() => setOpenKey(null)}
+      />
+    </div>
   );
 }

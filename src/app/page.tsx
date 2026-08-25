@@ -1,165 +1,155 @@
-"use client";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import {
+  ArrowRight,
+  Keyboard,
+  KanbanSquare,
+  Zap,
+  GitBranch,
+} from "lucide-react";
+import { getCurrentUser } from "@/lib/api/auth";
+import { getUserWorkspaces } from "@/lib/api/workspaces";
+import { isClerkEnabled } from "@/lib/auth-mode";
 
-import * as React from "react";
-import { AppShell } from "@/components/shell/AppShell";
-import { KanbanBoard, type StatusColumnData } from "@/components/board/KanbanBoard";
-import { type KanbanIssueItem } from "@/components/board/KanbanCard";
+// Auth + workspace lookup must run per-request
+export const dynamic = "force-dynamic";
 
-const initialStatuses: StatusColumnData[] = [
-  { id: "st-backlog", name: "Backlog", kind: "BACKLOG", position: 1000 },
-  { id: "st-todo", name: "Todo", kind: "TODO", position: 2000, isDefault: true },
-  { id: "st-inprogress", name: "In Progress", kind: "IN_PROGRESS", position: 3000 },
-  { id: "st-inreview", name: "In Review", kind: "IN_REVIEW", position: 4000 },
-  { id: "st-done", name: "Done", kind: "DONE", position: 5000 },
-];
+export default async function HomePage() {
+  const actor = await getCurrentUser();
 
-const initialIssues: KanbanIssueItem[] = [
-  {
-    id: "1",
-    key: "JREL-101",
-    title: "Scaffold Next.js 16 + Tailwind CSS design tokens & CSS variables",
-    description:
-      "Initialize Next.js with App Router, TypeScript, Inter + JetBrains Mono font pairing, and implement all tokens from DESIGN-SYSTEM.md as CSS variables for light/dark modes.",
-    status: "DONE",
-    priority: "HIGH",
-    assignee: { name: "Akash", initials: "AK" },
-    labels: ["foundation", "frontend"],
-    branchName: "feat/jrel-101-nextjs-tokens",
-    commentsCount: 4,
-    createdAt: "Today",
-    updatedAt: "Just now",
-    estimate: "3 pts",
-  },
-  {
-    id: "2",
-    key: "JREL-102",
-    title: "PostgreSQL 15 container in WSL & Prisma schema migration",
-    description:
-      "Run PostgreSQL 15 container via Docker Compose in WSL, configure prisma/schema.prisma with Clerk-mirrored User model and foundational enums.",
-    status: "DONE",
-    priority: "URGENT",
-    assignee: { name: "Sarah Chen", initials: "SC" },
-    labels: ["database", "backend"],
-    branchName: "feat/jrel-102-postgres-prisma",
-    commentsCount: 2,
-    createdAt: "Today",
-    updatedAt: "10m ago",
-    estimate: "2 pts",
-  },
-  {
-    id: "3",
-    key: "JREL-103",
-    title: "Restyle shadcn/ui primitives to exact design tokens",
-    description:
-      "Build Button, Input, Badge, Separator, Avatar, Card, PriorityBadge, and StatusBadge without generic SaaS gradients or pillowy corners.",
-    status: "DONE",
-    priority: "HIGH",
-    assignee: { name: "Alex Mercer", initials: "AM" },
-    labels: ["ui-kit", "design-system"],
-    branchName: "feat/jrel-103-ui-tokens",
-    commentsCount: 1,
-    createdAt: "Today",
-    updatedAt: "15m ago",
-    estimate: "3 pts",
-  },
-  {
-    id: "4",
-    key: "JREL-104",
-    title: "Clerk authentication integration & user webhook sync",
-    description:
-      "Integrate ClerkProvider, protected routes via proxy middleware, styled sign-in/up routes, and svix webhook synchronization to local PostgreSQL database mirror.",
-    status: "DONE",
-    priority: "HIGH",
-    assignee: { name: "Akash", initials: "AK" },
-    labels: ["auth", "backend"],
-    branchName: "feat/jrel-104-clerk-auth",
-    commentsCount: 3,
-    createdAt: "Today",
-    updatedAt: "Just now",
-    estimate: "5 pts",
-  },
-  {
-    id: "5",
-    key: "JREL-105",
-    title: "Projects & Issues domain CRUD, numbering, and midpoint sort order",
-    description:
-      "Add transactional MAX(number)+1 allocation, sortOrder midpoint calculation for drag-and-drop, dense list view, and settings.",
-    status: "DONE",
-    priority: "URGENT",
-    assignee: { name: "Sarah Chen", initials: "SC" },
-    labels: ["database", "api"],
-    branchName: "feat/jrel-105-issues-crud",
-    commentsCount: 0,
-    createdAt: "Today",
-    updatedAt: "Just now",
-    estimate: "5 pts",
-  },
-  {
-    id: "6",
-    key: "JREL-106",
-    title: "Interactive Kanban board: drag-and-drop, optimistic updates, and keyboard J/K/L/H",
-    description:
-      "Implement full HTML5 drag-and-drop between columns, keyboard move parity, quick card composer (C), and slide-over issue detail panel.",
-    status: "IN_PROGRESS",
-    priority: "URGENT",
-    assignee: { name: "Akash", initials: "AK" },
-    labels: ["kanban", "frontend"],
-    branchName: "feat/jrel-106-kanban-board",
-    commentsCount: 2,
-    createdAt: "Today",
-    updatedAt: "Active",
-    estimate: "5 pts",
-  },
-  {
-    id: "7",
-    key: "JREL-107",
-    title: "Sprint planning and velocity/throughput reports",
-    description:
-      "Sprint state machine (planned/active/completed), backlog planning view, active sprint board filter, and derived velocity metrics.",
-    status: "TODO",
-    priority: "MEDIUM",
-    assignee: { name: "Alex Mercer", initials: "AM" },
-    labels: ["sprints", "planning"],
-    branchName: "feat/jrel-107-sprints",
-    commentsCount: 0,
-    createdAt: "Today",
-    updatedAt: "1h ago",
-    estimate: "3 pts",
-  },
-  {
-    id: "8",
-    key: "JREL-108",
-    title: "Real-time presence and Socket.IO collaboration engine",
-    description:
-      "WebSocket server for board broadcast, optimistic reconciliation, and cursor presence indicator.",
-    status: "BACKLOG",
-    priority: "LOW",
-    assignee: { name: "Unassigned", initials: "UA" },
-    labels: ["realtime", "socket.io"],
-    branchName: "feat/jrel-108-realtime",
-    commentsCount: 0,
-    createdAt: "Today",
-    updatedAt: "3h ago",
-    estimate: "8 pts",
-  },
-];
+  if (actor) {
+    const workspaces = await getUserWorkspaces(actor.user.id);
+    if (workspaces.length > 0) {
+      redirect(`/${workspaces[0].slug}`);
+    }
+    // Authenticated but no workspace yet → straight into onboarding
+    if (!isClerkEnabled()) {
+      redirect("/onboarding");
+    }
+  }
 
-export default function Home() {
+  const signedIn = !!actor;
+
   return (
-    <AppShell>
-      <KanbanBoard
-        projectKey="JREL"
-        projectName="Jrello Core Platform"
-        projectDescription="Engineering workspace board. Use drag-and-drop or J/K/L/H to move cards, C to quick-add, Enter to inspect."
-        workspaceSlug="acme-eng"
-        initialStatuses={initialStatuses}
-        initialIssues={initialIssues}
-        currentUser={{
-          id: "me",
-          name: "Akash",
-          avatarUrl: null,
-        }}
-      />
-    </AppShell>
+    <div className="flex min-h-screen flex-col bg-[var(--bg-base)] text-[var(--text)]">
+      {/* Nav */}
+      <header className="flex h-14 items-center justify-between px-6">
+        <span className="flex items-center gap-2.5">
+          <span className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] bg-gradient-to-br from-[var(--accent)] to-[var(--palette-purple)] font-mono-id text-xs font-bold text-white">
+            J
+          </span>
+          <span className="font-semibold tracking-tight">Jrello</span>
+        </span>
+        <nav className="flex items-center gap-2">
+          {signedIn ? (
+            <Link
+              href="/onboarding"
+              className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--accent)] px-3.5 text-xs font-semibold text-white transition-colors hover:bg-[var(--accent-hover)]"
+            >
+              Create workspace <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          ) : (
+            <>
+              <Link
+                href="/sign-in"
+                className="inline-flex h-8 items-center rounded-[var(--radius-md)] px-3.5 text-xs font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-overlay)] hover:text-[var(--text)]"
+              >
+                Sign in
+              </Link>
+              <Link
+                href="/sign-up"
+                className="inline-flex h-8 items-center rounded-[var(--radius-md)] bg-[var(--accent)] px-3.5 text-xs font-semibold text-white transition-colors hover:bg-[var(--accent-hover)]"
+              >
+                Get started
+              </Link>
+            </>
+          )}
+        </nav>
+      </header>
+
+      {/* Hero */}
+      <main className="dot-grid flex flex-1 flex-col items-center justify-center px-6 py-20">
+        <div className="mx-auto flex max-w-2xl flex-col items-center gap-6 text-center">
+          <p className="rounded-full border border-[var(--border)] bg-[var(--bg-raised)] px-3 py-1 font-mono-id text-[11px] text-[var(--text-muted)] shadow-[var(--shadow-xs)]">
+            keyboard-first issue tracking
+          </p>
+          <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
+            Ship faster with a tracker that keeps up with{" "}
+            <span className="bg-gradient-to-r from-[var(--accent)] to-[var(--palette-purple)] bg-clip-text text-transparent">
+              your keyboard
+            </span>
+          </h1>
+          <p className="max-w-xl text-sm leading-relaxed text-[var(--text-muted)] sm:text-base">
+            Dense kanban boards, sprint planning, realtime presence, and GitHub-aware
+            issue keys — purpose-built for high-velocity engineering teams that live in
+            their terminal and their browser.
+          </p>
+
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            <Link
+              href={signedIn ? "/onboarding" : "/sign-up"}
+              className="inline-flex h-10 items-center gap-2 rounded-[var(--radius-md)] bg-[var(--accent)] px-5 text-sm font-semibold text-white shadow-[0_4px_16px_var(--accent-glow)] transition-all hover:bg-[var(--accent-hover)] hover:shadow-[0_6px_24px_var(--accent-glow)]"
+            >
+              {signedIn ? "Create a workspace" : "Start tracking free"}
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+            {!signedIn && (
+              <Link
+                href="/sign-in"
+                className="inline-flex h-10 items-center rounded-[var(--radius-md)] border border-[var(--border-strong)] bg-[var(--bg-raised)] px-5 text-sm font-medium text-[var(--text)] transition-colors hover:border-[var(--text-subtle)]"
+              >
+                I already have an account
+              </Link>
+            )}
+          </div>
+        </div>
+
+        {/* Feature grid */}
+        <div className="mt-16 grid w-full max-w-3xl grid-cols-1 gap-3 sm:grid-cols-3">
+          <FeatureCard
+            icon={KanbanSquare}
+            title="Kanban that flows"
+            body="Drag-and-drop with optimistic updates and fractional sort orders that never fight you."
+          />
+          <FeatureCard
+            icon={Keyboard}
+            title="Keyboard-first"
+            body="J/K/L/H navigation, ⌘K command palette, one-key create. Your hands never leave home row."
+          />
+          <FeatureCard
+            icon={Zap}
+            title="Realtime presence"
+            body="See teammates on the board as you plan. Moves broadcast instantly across the team."
+          />
+        </div>
+      </main>
+
+      <footer className="border-t border-[var(--border)] py-6 text-center font-mono-id text-[11px] text-[var(--text-subtle)]">
+        Jrello · built for engineers who move fast
+        <span className="mx-2 inline-flex translate-y-px items-center gap-1">
+          <GitBranch className="h-3 w-3" /> main
+        </span>
+      </footer>
+    </div>
+  );
+}
+
+function FeatureCard({
+  icon: Icon,
+  title,
+  body,
+}: {
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  title: string;
+  body: string;
+}) {
+  return (
+    <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-raised)] p-5 text-left shadow-[var(--shadow-xs)] transition-shadow hover:shadow-[var(--shadow-sm)]">
+      <span className="mb-3 flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-soft)] text-[var(--accent)]">
+        <Icon className="h-4.5 w-4.5" strokeWidth={1.5} />
+      </span>
+      <h3 className="text-sm font-semibold">{title}</h3>
+      <p className="mt-1 text-xs leading-relaxed text-[var(--text-muted)]">{body}</p>
+    </div>
   );
 }

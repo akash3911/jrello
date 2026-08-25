@@ -2,27 +2,24 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Check, Building2, Layers, AlertCircle } from "lucide-react";
+import { ArrowRight, Check, Building2, Layers, AlertCircle, Loader2 } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 export default function OnboardingPage() {
   const router = useRouter();
   const [step, setStep] = React.useState<1 | 2>(1);
-
-  // Workspace Form State
   const [workspaceName, setWorkspaceName] = React.useState("Acme Software");
-  const [workspaceSlug, setWorkspaceSlug] = React.useState("acme-eng");
-
-  // Project Form State
+  const [workspaceSlug, setWorkspaceSlug] = React.useState("acme-software");
   const [projectName, setProjectName] = React.useState("Core Platform");
   const [projectKey, setProjectKey] = React.useState("CORE");
-
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const handleNameChange = (val: string) => {
+  const handleWorkspaceName = (val: string) => {
     setWorkspaceName(val);
     setWorkspaceSlug(
       val
@@ -32,223 +29,224 @@ export default function OnboardingPage() {
     );
   };
 
-  const handleProjectNameChange = (val: string) => {
+  const handleProjectName = (val: string) => {
     setProjectName(val);
-    const words = val.trim().split(/\s+/);
+    const words = val.trim().split(/\s+/).filter(Boolean);
+    if (!words[0]) {
+      setProjectKey("");
+      return;
+    }
     if (words.length >= 2) {
-      setProjectKey((words[0][0] + words[1][0] + (words[2] ? words[2][0] : "")).toUpperCase());
-    } else if (words[0]) {
+      setProjectKey(
+        (words[0][0] + words[1][0] + (words[2]?.[0] ?? "")).toUpperCase()
+      );
+    } else {
       setProjectKey(words[0].slice(0, 4).toUpperCase());
     }
   };
 
-  const handleCompleteOnboarding = async () => {
+  const finish = async () => {
     setLoading(true);
     setError(null);
-
     try {
       const res = await fetch("/api/v1/workspaces", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: workspaceName,
-          slug: workspaceSlug,
+          name: workspaceName.trim(),
+          slug: workspaceSlug.trim(),
           initialProject: {
-            name: projectName,
-            slug: projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-            key: projectKey,
+            name: projectName.trim(),
+            slug: projectName
+              .toLowerCase()
+              .trim()
+              .replace(/[^a-z0-9]+/g, "-")
+              .replace(/^-|-$/g, ""),
+            key: projectKey.trim().toUpperCase(),
           },
         }),
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to create workspace");
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Failed to create workspace");
       }
 
-      router.push(`/${workspaceSlug}`);
-    } catch (err: unknown) {
-      console.error(err);
-      const msg = err instanceof Error ? err.message : "Something went wrong. Please check your inputs.";
-      setError(msg);
+      router.push(`/${workspaceSlug.trim()}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-[var(--bg-base)] text-[var(--text)] p-4 select-none">
-      <div className="w-full max-w-lg flex flex-col gap-6">
-        {/* Brand header */}
+    <div className="dot-grid flex min-h-screen select-none flex-col items-center justify-center bg-[var(--bg-base)] p-4">
+      <div className="flex w-full max-w-lg flex-col gap-6">
+        {/* Brand */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--accent)] text-[var(--accent-fg)] font-mono-id font-bold text-sm">
-              JR
-            </div>
-            <div className="flex flex-col">
-              <span className="text-sm font-bold text-[var(--text)] tracking-tight">
-                Jrello Onboarding
-              </span>
-              <span className="text-[11px] text-[var(--text-subtle)] font-mono-id">
+          <Link href="/" className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] bg-gradient-to-br from-[var(--accent)] to-[var(--palette-purple)] font-mono-id text-sm font-bold text-white">
+              J
+            </span>
+            <span className="flex flex-col leading-tight">
+              <span className="text-sm font-bold tracking-tight">Jrello</span>
+              <span className="font-mono-id text-[11px] text-[var(--text-subtle)]">
                 Step {step} of 2
               </span>
-            </div>
-          </div>
-
+            </span>
+          </Link>
           <Badge variant="accent" size="sm">
-            Phase 2
+            setup
           </Badge>
         </div>
 
-        {/* Wizard Card */}
-        <div className="rounded-[var(--radius-lg)] border border-[var(--border-strong)] bg-[var(--bg-raised)] p-6 shadow-[var(--shadow-sm)] flex flex-col gap-6">
+        {/* Progress */}
+        <div className="flex gap-1.5">
+          <span className={cn("h-1 flex-1 rounded-full transition-colors", step >= 1 ? "bg-[var(--accent)]" : "bg-[var(--bg-inset)]")} />
+          <span className={cn("h-1 flex-1 rounded-full transition-colors", step >= 2 ? "bg-[var(--accent)]" : "bg-[var(--bg-inset)]")} />
+        </div>
+
+        <div className="flex flex-col gap-6 rounded-[var(--radius-lg)] border border-[var(--border-strong)] bg-[var(--bg-raised)] p-6 shadow-[var(--shadow-md)] animate-modal-in">
           {error && (
-            <div className="p-3 rounded-[var(--radius-sm)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] text-[var(--danger-fg)] text-xs flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>{error}</span>
-            </div>
+            <p className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] px-3 py-2 text-xs text-[var(--danger-fg)]">
+              <AlertCircle className="h-4 w-4 shrink-0" /> {error}
+            </p>
           )}
 
           {step === 1 ? (
-            /* Step 1: Workspace Creation */
-            <div className="flex flex-col gap-4">
+            <>
               <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
+                <h2 className="flex items-center gap-2 text-base font-semibold">
                   <Building2 className="h-4 w-4 text-[var(--accent)]" />
-                  <h2 className="text-base font-semibold text-[var(--text)]">
-                    Create Your Engineering Workspace
-                  </h2>
-                </div>
-                <p className="text-xs text-[var(--text-muted)]">
-                  The workspace is your organization&apos;s tenancy boundary where projects, billing, and teams live.
+                  Create your workspace
+                </h2>
+                <p className="text-xs leading-relaxed text-[var(--text-muted)]">
+                  A workspace is your team&apos;s home — projects, members and settings
+                  live here.
                 </p>
               </div>
 
-              <div className="flex flex-col gap-3.5 pt-2">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-[var(--text-subtle)] uppercase">
-                    Workspace Name
-                  </label>
+              <div className="flex flex-col gap-3.5 pt-1">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-subtle)]">
+                    Workspace name
+                  </span>
                   <Input
                     value={workspaceName}
-                    onChange={(e) => handleNameChange(e.target.value)}
-                    placeholder="e.g. Acme Software"
-                    className="text-xs"
+                    onChange={(e) => handleWorkspaceName(e.target.value)}
+                    placeholder="Acme Software"
                     required
                   />
-                </div>
+                </label>
 
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-[var(--text-subtle)] uppercase">
-                    Workspace URL Slug
-                  </label>
-                  <div className="flex items-center">
-                    <span className="h-8 px-2.5 flex items-center rounded-l-[var(--radius-sm)] border border-r-0 border-[var(--border)] bg-[var(--bg-overlay)] text-xs text-[var(--text-subtle)] font-mono-id">
-                      jrello.com/
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-subtle)]">
+                    URL slug
+                  </span>
+                  <div className="flex items-stretch">
+                    <span className="flex h-8 items-center rounded-l-[var(--radius-sm)] border border-r-0 border-[var(--border)] bg-[var(--bg-overlay)] px-2.5 font-mono-id text-xs text-[var(--text-subtle)]">
+                      /
                     </span>
                     <input
                       type="text"
                       value={workspaceSlug}
-                      onChange={(e) => setWorkspaceSlug(e.target.value.toLowerCase())}
-                      placeholder="acme-eng"
-                      className="flex h-8 w-full rounded-r-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-base)] px-3 text-xs text-[var(--text)] font-mono-id focus-ring outline-none"
+                      onChange={(e) =>
+                        setWorkspaceSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))
+                      }
+                      placeholder="acme-software"
+                      className="flex h-8 w-full rounded-r-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-base)] px-3 font-mono-id text-xs outline-none focus-ring"
                     />
                   </div>
-                </div>
+                </label>
               </div>
 
-              <div className="flex items-center justify-end pt-4 border-t border-[var(--border)]">
+              <div className="flex justify-end border-t border-[var(--border)] pt-4">
                 <Button
                   variant="primary"
-                  size="md"
                   onClick={() => {
-                    if (workspaceName.trim() && workspaceSlug.trim()) {
-                      setStep(2);
-                    }
+                    if (workspaceName.trim() && workspaceSlug.trim()) setStep(2);
                   }}
                   disabled={!workspaceName.trim() || !workspaceSlug.trim()}
-                  className="gap-2 text-xs"
+                  className="gap-2"
                 >
-                  <span>Continue to Project</span>
-                  <ArrowRight className="h-3.5 w-3.5" />
+                  Continue <ArrowRight className="h-3.5 w-3.5" />
                 </Button>
               </div>
-            </div>
+            </>
           ) : (
-            /* Step 2: First Project Creation */
-            <div className="flex flex-col gap-4">
+            <>
               <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
+                <h2 className="flex items-center gap-2 text-base font-semibold">
                   <Layers className="h-4 w-4 text-[var(--accent)]" />
-                  <h2 className="text-base font-semibold text-[var(--text)]">
-                    Create Your First Project
-                  </h2>
-                </div>
-                <p className="text-xs text-[var(--text-muted)]">
-                  Projects represent distinct codebases or products. Each has a short identifier prefix for issue keys (e.g. CORE-101).
+                  Create your first project
+                </h2>
+                <p className="text-xs leading-relaxed text-[var(--text-muted)]">
+                  Projects map to a codebase or product. Each gets a key used for issue
+                  references like{" "}
+                  <code className="rounded bg-[var(--bg-inset)] px-1 font-mono-id font-bold text-[var(--accent)]">
+                    {projectKey || "PROJ"}-101
+                  </code>
+                  .
                 </p>
               </div>
 
-              <div className="flex flex-col gap-3.5 pt-2">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-[var(--text-subtle)] uppercase">
-                    Project Name
-                  </label>
+              <div className="flex flex-col gap-3.5 pt-1">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-subtle)]">
+                    Project name
+                  </span>
                   <Input
                     value={projectName}
-                    onChange={(e) => handleProjectNameChange(e.target.value)}
-                    placeholder="e.g. Core Platform"
-                    className="text-xs"
+                    onChange={(e) => handleProjectName(e.target.value)}
+                    placeholder="Core Platform"
                     required
                   />
-                </div>
+                </label>
 
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-[var(--text-subtle)] uppercase">
-                    Issue Key Prefix (2–6 uppercase chars)
-                  </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-subtle)]">
+                    Issue key (2–6 letters)
+                  </span>
                   <Input
                     value={projectKey}
-                    onChange={(e) => setProjectKey(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))}
+                    onChange={(e) =>
+                      setProjectKey(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))
+                    }
                     placeholder="CORE"
-                    className="font-mono-id text-xs font-bold text-[var(--accent)] uppercase"
                     maxLength={6}
+                    className="font-mono-id font-bold uppercase text-[var(--accent)]"
                     required
                   />
-                  <span className="text-[11px] text-[var(--text-subtle)] font-mono-id">
-                    Issues will look like: {projectKey || "PROJ"}-101, {projectKey || "PROJ"}-102
+                  <span className="font-mono-id text-[10px] text-[var(--text-subtle)]">
+                    issues will look like {projectKey || "PROJ"}-101, {projectKey || "PROJ"}-102…
                   </span>
-                </div>
+                </label>
               </div>
 
-              <div className="flex items-center justify-between pt-4 border-t border-[var(--border)]">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setStep(1)}
-                  disabled={loading}
-                  className="text-xs"
-                >
+              <div className="flex items-center justify-between border-t border-[var(--border)] pt-4">
+                <Button variant="ghost" size="sm" onClick={() => setStep(1)} disabled={loading}>
                   Back
                 </Button>
-
                 <Button
                   variant="primary"
-                  size="md"
-                  onClick={handleCompleteOnboarding}
-                  disabled={loading || !projectName.trim() || !projectKey.trim()}
-                  className="gap-2 text-xs"
+                  onClick={() => void finish()}
+                  disabled={
+                    loading || !projectName.trim() || projectKey.trim().length < 2
+                  }
+                  className="gap-2"
                 >
                   {loading ? (
-                    <span>Provisioning Workspace...</span>
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Provisioning…
+                    </>
                   ) : (
                     <>
-                      <span>Finish & Launch Board</span>
-                      <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                      Finish & launch board <Check className="h-3.5 w-3.5" strokeWidth={2} />
                     </>
                   )}
                 </Button>
               </div>
-            </div>
+            </>
           )}
         </div>
       </div>

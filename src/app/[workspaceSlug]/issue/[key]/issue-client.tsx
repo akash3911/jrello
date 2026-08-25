@@ -2,294 +2,413 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowLeft, GitBranch, MessageSquare } from "lucide-react";
-import { AppShell } from "@/components/shell/AppShell";
-import { Button } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
+import {
+  ArrowLeft,
+  GitBranch,
+  Copy,
+  Check,
+  Loader2,
+  Pencil,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { PriorityBadge, type PriorityLevel } from "@/components/ui/priority-badge";
 import { StatusBadge, type StatusKind } from "@/components/ui/status-badge";
+import { formatDateTime, relativeTime, initialsOf } from "@/lib/format";
 
-export interface CommentUser {
-  id: string;
-  name: string | null;
-  email: string;
-  avatarUrl: string | null;
-}
-
-export interface CommentItem {
+interface CommentItem {
   id: string;
   body: string;
-  createdAt: string | Date;
-  user: CommentUser;
+  createdAt: string;
+  user: { id: string; name: string | null; email: string; avatarUrl: string | null };
 }
 
-export interface FullIssueData {
+interface FullIssue {
   id: string;
   number: number;
   title: string;
   description: string | null;
-  status: {
-    id: string;
-    name: string;
-    kind: StatusKind;
-  };
+  status: { id: string; name: string; kind: StatusKind };
   priority: PriorityLevel;
   estimate: number | null;
-  createdAt: string | Date;
-  assignee: {
-    id: string;
-    name: string | null;
-    avatarUrl: string | null;
-  } | null;
-  createdBy: {
-    id: string;
-    name: string | null;
-  };
+  createdAt: string;
+  updatedAt: string;
+  assignee: { id: string; name: string | null; avatarUrl: string | null } | null;
+  createdBy: { id: string; name: string | null };
   project: {
-    id: string;
+    key: string;
     name: string;
     slug: string;
-    key: string;
+    statuses: { id: string; name: string; kind: StatusKind }[];
   };
+  labels: { label: { id: string; name: string; color: string } }[];
   comments: CommentItem[];
 }
 
-interface StandaloneClientProps {
-  issue: FullIssueData;
-  workspaceSlug: string;
-}
-
-export default function IssueDetailStandaloneClient({
-  issue,
+export default function IssueDetailClient({
+  initialIssue,
   workspaceSlug,
-}: StandaloneClientProps) {
-  const [currentStatus, setCurrentStatus] = React.useState<StatusKind>(
-    issue.status.kind
-  );
-  const [currentPriority, setCurrentPriority] = React.useState<PriorityLevel>(
-    issue.priority
-  );
-  const [commentText, setCommentText] = React.useState("");
-  const [comments, setComments] = React.useState<CommentItem[]>(issue.comments || []);
-
-  const handleAddComment = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!commentText.trim()) return;
-
-    const newComment: CommentItem = {
-      id: `comment-${Date.now()}`,
-      body: commentText.trim(),
-      createdAt: new Date().toISOString(),
-      user: {
-        id: "me",
-        name: "You",
-        email: "you@jrello.com",
-        avatarUrl: null,
-      },
-    };
-
-    setComments((prev) => [...prev, newComment]);
-    setCommentText("");
-  };
+}: {
+  initialIssue: FullIssue;
+  workspaceSlug: string;
+}) {
+  const router = useRouter();
+  const [issue, setIssue] = React.useState(initialIssue);
+  const [saving, setSaving] = React.useState(false);
+  const [editingTitle, setEditingTitle] = React.useState(false);
+  const [titleDraft, setTitleDraft] = React.useState(issue.title);
+  const [descDraft, setDescDraft] = React.useState<string | null>(null);
+  const [commentDraft, setCommentDraft] = React.useState("");
+  const [posting, setPosting] = React.useState(false);
+  const [copiedBranch, setCopiedBranch] = React.useState(false);
 
   const project = issue.project;
+  const branch = `feat/${project.key.toLowerCase()}-${issue.number}`;
+  const apiBase = `/api/v1/workspaces/${workspaceSlug}/projects/${project.slug}/issues/${issue.number}`;
+
+  const patch = async (body: Record<string, unknown>) => {
+    setSaving(true);
+    try {
+      const res = await fetch(apiBase, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      const raw = data.issue;
+      setIssue((prev) => ({
+        ...prev,
+        title: raw.title ?? prev.title,
+        description:
+          raw.description !== undefined ? raw.description : prev.description,
+        priority: raw.priority ?? prev.priority,
+        estimate: raw.estimate !== undefined ? raw.estimate : prev.estimate,
+        assignee: raw.assignee !== undefined ? raw.assignee : prev.assignee,
+        updatedAt: new Date().toISOString(),
+      }));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const postComment = async () => {
+    if (!commentDraft.trim()) return;
+    setPosting(true);
+    try {
+      const res = await fetch(`${apiBase}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: commentDraft.trim() }),
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setIssue((prev) => ({ ...prev, comments: [...prev.comments, data.comment] }));
+      setCommentDraft("");
+    } finally {
+      setPosting(false);
+    }
+  };
 
   return (
-    <AppShell>
-      <div className="flex h-full flex-col min-w-0 bg-[var(--bg-base)] overflow-y-auto">
-        <div className="max-w-4xl w-full mx-auto px-6 py-8 flex flex-col gap-6">
-          {/* Back Navigation Bar */}
-          <div className="flex items-center justify-between pb-3 border-b border-[var(--border)]">
-            <Link
-              href={`/${workspaceSlug}/projects/${project.slug}`}
-              className="flex items-center gap-2 text-xs text-[var(--text-subtle)] hover:text-[var(--text)] transition-colors"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              <span>Back to {project.name} Board</span>
-            </Link>
-
-            <div className="flex items-center gap-2">
-              <Badge variant="mono" size="sm">
-                {project.key}-{issue.number}
-              </Badge>
-            </div>
-          </div>
-
-          {/* Main Grid: Content + Meta Column */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {/* Left 2 Cols: Issue Content & Discussion */}
-            <div className="md:col-span-2 flex flex-col gap-6">
-              <div className="flex flex-col gap-2">
-                <h1 className="text-xl font-bold text-[var(--text)] leading-snug">
-                  {issue.title}
-                </h1>
-                <div className="flex items-center gap-2 text-xs text-[var(--text-subtle)]">
-                  <span>Created {new Date(issue.createdAt).toLocaleDateString()}</span>
-                  <span>•</span>
-                  <span>By {issue.createdBy.name || "Team member"}</span>
-                </div>
-              </div>
-
-              {/* Description Body */}
-              <div className="p-4 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] text-xs text-[var(--text)] leading-relaxed whitespace-pre-wrap">
-                {issue.description || "No description provided."}
-              </div>
-
-              {/* Git Branch / Context */}
-              <div className="p-3 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-overlay)] flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <GitBranch className="h-4 w-4 text-[var(--accent)]" />
-                  <span className="font-mono-id text-xs text-[var(--text)] font-medium">
-                    feat/{project.key.toLowerCase()}-{issue.number}
-                  </span>
-                </div>
-                <Badge variant="accent" size="sm">
-                  Active Branch
-                </Badge>
-              </div>
-
-              {/* Comments Stream */}
-              <div className="flex flex-col gap-4 pt-4 border-t border-[var(--border)]">
-                <div className="flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4 text-[var(--accent)]" />
-                  <h3 className="text-xs font-semibold text-[var(--text)] uppercase tracking-wider">
-                    Discussion ({comments.length})
-                  </h3>
-                </div>
-
-                <div className="flex flex-col gap-3">
-                  {comments.length === 0 ? (
-                    <p className="text-xs text-[var(--text-subtle)] font-mono-id">
-                      No comments yet. Start the discussion below.
-                    </p>
-                  ) : (
-                    comments.map((c) => (
-                      <div
-                        key={c.id}
-                        className="p-3 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-raised)] flex flex-col gap-1.5"
-                      >
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="font-semibold text-[var(--text)]">
-                            {c.user.name || "Developer"}
-                          </span>
-                          <span className="text-[var(--text-subtle)] font-mono-id">
-                            {new Date(c.createdAt).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </span>
-                        </div>
-                        <p className="text-xs text-[var(--text)] whitespace-pre-wrap leading-relaxed">
-                          {c.body}
-                        </p>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                {/* New Comment Box */}
-                <form onSubmit={handleAddComment} className="flex flex-col gap-2 pt-2">
-                  <textarea
-                    rows={3}
-                    value={commentText}
-                    onChange={(e) => setCommentText(e.target.value)}
-                    placeholder="Write a comment or markdown update..."
-                    className="w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-raised)] p-2.5 text-xs text-[var(--text)] placeholder:text-[var(--text-subtle)] focus-ring outline-none resize-none"
-                  />
-                  <div className="flex justify-end">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      type="submit"
-                      disabled={!commentText.trim()}
-                      className="text-xs"
-                    >
-                      Post Comment
-                    </Button>
-                  </div>
-                </form>
-              </div>
-            </div>
-
-            {/* Right Col: Metadata Properties */}
-            <div className="flex flex-col gap-5 p-4 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] h-fit">
-              <h3 className="text-xs font-semibold text-[var(--text-subtle)] uppercase tracking-wider">
-                Properties
-              </h3>
-
-              {/* Status Selector */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] font-semibold text-[var(--text-subtle)] uppercase">
-                  Status
-                </label>
-                <div className="flex items-center gap-2">
-                  <StatusBadge status={currentStatus} size="sm" />
-                  <select
-                    value={currentStatus}
-                    onChange={(e) => setCurrentStatus(e.target.value as StatusKind)}
-                    className="h-7 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-base)] px-2 text-xs text-[var(--text)] focus-ring outline-none"
-                  >
-                    <option value="BACKLOG">Backlog</option>
-                    <option value="TODO">Todo</option>
-                    <option value="IN_PROGRESS">In Progress</option>
-                    <option value="IN_REVIEW">In Review</option>
-                    <option value="DONE">Done</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Priority Selector */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] font-semibold text-[var(--text-subtle)] uppercase">
-                  Priority
-                </label>
-                <div className="flex items-center gap-2">
-                  <PriorityBadge priority={currentPriority} size="sm" />
-                  <select
-                    value={currentPriority}
-                    onChange={(e) => setCurrentPriority(e.target.value as PriorityLevel)}
-                    className="h-7 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-base)] px-2 text-xs text-[var(--text)] focus-ring outline-none"
-                  >
-                    <option value="URGENT">Urgent</option>
-                    <option value="HIGH">High</option>
-                    <option value="MEDIUM">Medium</option>
-                    <option value="LOW">Low</option>
-                    <option value="NONE">None</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Assignee */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] font-semibold text-[var(--text-subtle)] uppercase">
-                  Assignee
-                </label>
-                <div className="flex items-center gap-2 text-xs">
-                  <Avatar
-                    fallback={(issue.assignee?.name || "ME").slice(0, 2).toUpperCase()}
-                    size="xs"
-                    className="bg-[var(--accent-soft)] text-[var(--accent)] font-semibold"
-                  />
-                  <span className="text-[var(--text)]">
-                    {issue.assignee?.name || "Unassigned"}
-                  </span>
-                </div>
-              </div>
-
-              {/* Story Points */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] font-semibold text-[var(--text-subtle)] uppercase">
-                  Estimate
-                </label>
-                <span className="font-mono-id text-xs text-[var(--text)] font-medium">
-                  {issue.estimate ? `${issue.estimate} points` : "3 points"}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
+    <div className="mx-auto w-full max-w-4xl px-6 py-8">
+      {/* Nav */}
+      <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
+        <Link
+          href={`/${workspaceSlug}/projects/${project.slug}`}
+          className="flex items-center gap-2 text-xs text-[var(--text-subtle)] transition-colors hover:text-[var(--text)]"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to {project.name}
+        </Link>
+        <Badge variant="mono" size="md">
+          {project.key}-{issue.number}
+        </Badge>
       </div>
-    </AppShell>
+
+      <div className="grid grid-cols-1 gap-8 pt-6 md:grid-cols-3">
+        {/* Main */}
+        <div className="flex flex-col gap-6 md:col-span-2">
+          {editingTitle ? (
+            <div className="flex flex-col gap-2">
+              <input
+                autoFocus
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                className="w-full rounded-[var(--radius-sm)] border border-[var(--accent)]/50 bg-[var(--bg-base)] px-3 py-2 text-lg font-bold outline-none"
+              />
+              <span className="flex gap-2">
+                <Button
+                  size="xs"
+                  variant="primary"
+                  onClick={() => {
+                    void patch({ title: titleDraft.trim() });
+                    setEditingTitle(false);
+                  }}
+                  disabled={!titleDraft.trim()}
+                >
+                  Save
+                </Button>
+                <Button size="xs" variant="ghost" onClick={() => setEditingTitle(false)}>
+                  Cancel
+                </Button>
+              </span>
+            </div>
+          ) : (
+            <div className="group flex items-start justify-between gap-3">
+              <h1 className="text-xl font-bold leading-snug tracking-tight">
+                {issue.title}
+              </h1>
+              <button
+                onClick={() => {
+                  setTitleDraft(issue.title);
+                  setEditingTitle(true);
+                }}
+                className="shrink-0 rounded p-1 text-[var(--text-subtle)] hover:bg-[var(--bg-overlay)] hover:text-[var(--text)]"
+                title="Edit title"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          <p className="-mt-3 font-mono-id text-[11px] text-[var(--text-subtle)]">
+            opened {formatDateTime(issue.createdAt)} by{" "}
+            {issue.createdBy.name ?? "member"} · updated {relativeTime(issue.updatedAt)}
+          </p>
+
+          {/* Description */}
+          {descDraft === null ? (
+            <div className="group relative rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] p-4">
+              <p className="whitespace-pre-wrap text-xs leading-relaxed">
+                {issue.description?.trim() || "No description provided."}
+              </p>
+              <button
+                onClick={() => setDescDraft(issue.description ?? "")}
+                className="absolute right-2 top-2 hidden rounded p-1 text-[var(--text-subtle)] hover:bg-[var(--bg-overlay)] hover:text-[var(--text)] group-hover:block"
+                title="Edit description"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <textarea
+                autoFocus
+                rows={8}
+                value={descDraft}
+                onChange={(e) => setDescDraft(e.target.value)}
+                className="w-full resize-none rounded-[var(--radius-sm)] border border-[var(--accent)]/50 bg-[var(--bg-base)] p-3 text-xs outline-none"
+              />
+              <span className="flex gap-2">
+                <Button
+                  size="xs"
+                  variant="primary"
+                  onClick={() => {
+                    void patch({ description: descDraft });
+                    setDescDraft(null);
+                  }}
+                >
+                  Save
+                </Button>
+                <Button size="xs" variant="ghost" onClick={() => setDescDraft(null)}>
+                  Cancel
+                </Button>
+              </span>
+            </div>
+          )}
+
+          {/* Branch */}
+          <div className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] px-3 py-2.5">
+            <span className="flex min-w-0 items-center gap-2">
+              <GitBranch className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+              <code className="truncate font-mono-id text-xs">{branch}</code>
+            </span>
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => {
+                void navigator.clipboard.writeText(`git checkout -b ${branch}`);
+                setCopiedBranch(true);
+                setTimeout(() => setCopiedBranch(false), 1600);
+              }}
+              className="gap-1"
+            >
+              {copiedBranch ? (
+                <>
+                  <Check className="h-3 w-3 text-[var(--success)]" /> Copied
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3 w-3" /> git checkout
+                </>
+              )}
+            </Button>
+          </div>
+
+          {/* Comments */}
+          <section className="flex flex-col gap-3 border-t border-[var(--border)] pt-5">
+            <h3 className="text-xs font-semibold uppercase tracking-wider">
+              Discussion ({issue.comments.length})
+            </h3>
+
+            {issue.comments.length === 0 ? (
+              <p className="font-mono-id text-xs text-[var(--text-subtle)]">
+                No comments yet — start the thread below.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {issue.comments.map((c) => (
+                  <li
+                    key={c.id}
+                    className="rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] p-3.5"
+                  >
+                    <span className="mb-1.5 flex items-center justify-between">
+                      <span className="flex items-center gap-2">
+                        <Avatar src={c.user.avatarUrl} fallback={initialsOf(c.user.name)} size="xs" />
+                        <b className="text-xs">{c.user.name ?? "Member"}</b>
+                      </span>
+                      <span className="font-mono-id text-[10px] text-[var(--text-subtle)]">
+                        {relativeTime(c.createdAt)}
+                      </span>
+                    </span>
+                    <p className="whitespace-pre-wrap text-xs leading-relaxed">{c.body}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void postComment();
+              }}
+              className="flex flex-col gap-2 pt-1"
+            >
+              <textarea
+                rows={3}
+                value={commentDraft}
+                onChange={(e) => setCommentDraft(e.target.value)}
+                placeholder="Write a comment… (markdown supported)"
+                className="w-full resize-none rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] p-3 text-xs outline-none focus-ring"
+              />
+              <span className="flex justify-end">
+                <Button variant="primary" size="sm" disabled={!commentDraft.trim() || posting} className="gap-1.5">
+                  {posting && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Post comment
+                </Button>
+              </span>
+            </form>
+          </section>
+        </div>
+
+        {/* Properties sidebar */}
+        <aside className="flex h-fit flex-col gap-4 rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-raised)] p-4">
+          <h3 className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-subtle)]">
+            Properties {saving && <Loader2 className="ml-1 inline h-3 w-3 animate-spin text-[var(--accent)]" />}
+          </h3>
+
+          <Field label="Status">
+            <StatusBadge status={issue.status.kind} />
+            <select
+              value={issue.status.id}
+              onChange={(e) => void patch({ statusId: e.target.value })}
+              className="mt-1 w-full rounded bg-transparent text-xs text-[var(--text-muted)] outline-none focus-ring"
+            >
+              {issue.project.statuses.length > 0 ? (
+                issue.project.statuses.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))
+              ) : (
+                <option value={issue.status.id}>{issue.status.name}</option>
+              )}
+            </select>
+          </Field>
+
+          <Field label="Priority">
+            <PriorityBadge priority={issue.priority} showLabel />
+            <select
+              value={issue.priority}
+              onChange={(e) => void patch({ priority: e.target.value })}
+              className="mt-1 w-full rounded bg-transparent text-xs text-[var(--text-muted)] outline-none focus-ring"
+            >
+              {["URGENT", "HIGH", "MEDIUM", "LOW", "NONE"].map((p) => (
+                <option key={p} value={p}>
+                  {p.charAt(0) + p.slice(1).toLowerCase()}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Assignee">
+            <span className="flex items-center gap-1.5">
+              {issue.assignee ? (
+                <>
+                  <Avatar src={issue.assignee.avatarUrl} fallback={initialsOf(issue.assignee.name)} size="xs" />
+                  <span className="truncate text-xs">{issue.assignee.name ?? "Member"}</span>
+                </>
+              ) : (
+                <span className="text-xs italic text-[var(--text-subtle)]">Unassigned</span>
+              )}
+            </span>
+          </Field>
+
+          <Field label="Estimate">
+            <select
+              value={String(issue.estimate ?? "")}
+              onChange={(e) =>
+                void patch({ estimate: e.target.value ? Number(e.target.value) : null })
+              }
+              className="w-full rounded bg-transparent font-mono-id text-xs text-[var(--text-muted)] outline-none focus-ring"
+            >
+              <option value="">None</option>
+              {[1, 2, 3, 5, 8].map((n) => (
+                <option key={n} value={n}>
+                  {n} pts
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          {issue.labels.length > 0 && (
+            <Field label="Labels">
+              <span className="flex flex-wrap gap-1.5 pt-0.5">
+                {issue.labels.map(({ label }) => (
+                  <Badge key={label.id} variant="purple" size="xs">
+                    {label.name}
+                  </Badge>
+                ))}
+              </span>
+            </Field>
+          )}
+        </aside>
+      </div>
+
+      <button
+        onClick={() => router.back()}
+        className="mx-auto mt-10 block font-mono-id text-[10px] text-[var(--text-subtle)] hover:text-[var(--text)]"
+      >
+        go back
+      </button>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-subtle)]">
+        {label}
+      </span>
+      {children}
+    </div>
   );
 }
