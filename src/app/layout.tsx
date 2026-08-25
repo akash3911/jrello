@@ -1,6 +1,6 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
+import { AuthProvider } from "@/components/auth-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
@@ -8,7 +8,6 @@ const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
   display: "swap",
-  axes: ["opsz"],
 });
 
 const jetbrainsMono = JetBrains_Mono({
@@ -18,9 +17,16 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Jrello — Developer-first project & issue tracker",
+  title: "Jrello — Keyboard-first issue tracking for software teams",
   description:
-    "Dense, fast, keyboard-first issue tracking and project planning for high-velocity software engineering teams.",
+    "Dense, fast, keyboard-first issue tracking and project planning for high-velocity engineering teams.",
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0b0b10" },
+    { media: "(prefers-color-scheme: light)", color: "#fcfcfd" },
+  ],
 };
 
 export default function RootLayout({
@@ -29,13 +35,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <ClerkProvider>
-      <html
-        lang="en"
-        suppressHydrationWarning
-        className={`${inter.variable} ${jetbrainsMono.variable} h-full`}
-      >
-        <body className="min-h-full flex flex-col antialiased selection:bg-[var(--accent-soft)] selection:text-[var(--accent)]">
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${inter.variable} ${jetbrainsMono.variable} h-full`}
+    >
+      <body className="min-h-full flex flex-col antialiased selection:bg-[var(--accent-soft)] selection:text-[var(--accent)]">
+        <AuthProvider>
           <ThemeProvider
             attribute="class"
             defaultTheme="dark"
@@ -44,8 +50,8 @@ export default function RootLayout({
           >
             {children}
           </ThemeProvider>
-        </body>
-      </html>
-    </ClerkProvider>
+        </AuthProvider>
+      </body>
+    </html>
   );
 }
