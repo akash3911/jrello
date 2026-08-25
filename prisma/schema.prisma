@@ -274,6 +274,7 @@ model Issue {
   activity     Activity[]
   branches     IssueBranch[]
   pullRequests IssuePullRequest[]
+  notifications Notification[]         @relation("NotificationIssue")
 
   @@unique([projectId, number])
   @@index([projectId, statusId])
@@ -327,9 +328,11 @@ model Notification {
   user        User             @relation("NotificationUser", fields: [userId], references: [id], onDelete: Cascade)
   workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   actor       User?            @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  issue       Issue?           @relation("NotificationIssue", fields: [issueId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt])
   @@index([userId, createdAt])
+  @@index([issueId])
 }
 
 // --------------------------------------------------------
