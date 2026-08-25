@@ -2,140 +2,138 @@
 
 import * as React from "react";
 import { io, Socket } from "socket.io-client";
-import {
-  type ServerToClientEvents,
-  type ClientToServerEvents,
-  type PresenceViewer,
-  type IssuePayload,
+import type {
+  ServerToClientEvents,
+  ClientToServerEvents,
+  PresenceViewer,
 } from "./events";
-import { type StatusKind } from "@/components/ui/status-badge";
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 export interface UseProjectRealtimeOptions {
   projectId: string;
-  currentUser?: {
+  currentUser: {
     id: string;
     name: string | null;
     avatarUrl?: string | null;
   } | null;
-  onIssueCreated?: (issue: IssuePayload) => void;
+  onIssueCreated?: (issue: {
+    id: string;
+    number: number;
+    title: string;
+    statusKind: string;
+    priority: string;
+    sortOrder: number;
+  }) => void;
   onIssueMoved?: (data: {
     issueId: string;
-    fromStatus: StatusKind;
-    toStatus: StatusKind;
+    fromStatus: string;
+    toStatus: string;
     actorName: string;
   }) => void;
+  onIssueUpdated?: () => void;
   onIssueDeleted?: (issueId: string) => void;
-  onRefetchNeeded?: () => void;
 }
+
+const PRESENCE_COLORS = [
+  "#5b5bd6",
+  "#0d8a94",
+  "#e06616",
+  "#9040d8",
+  "#189a53",
+  "#d43c3c",
+];
 
 export function useProjectRealtime({
   projectId,
   currentUser,
   onIssueCreated,
   onIssueMoved,
+  onIssueUpdated,
   onIssueDeleted,
-  onRefetchNeeded,
 }: UseProjectRealtimeOptions) {
   const socketRef = React.useRef<TypedSocket | null>(null);
-  const [viewers, setViewers] = React.useState<PresenceViewer[]>(() => [
-    {
-      id: currentUser?.id || "anon",
-      name: currentUser?.name || "You",
-      avatarUrl: currentUser?.avatarUrl || null,
-      color: "var(--accent)",
-      initials: (currentUser?.name || "ME").slice(0, 2).toUpperCase(),
-    },
-    {
-      id: "usr-sarah",
-      name: "Sarah Chen",
-      avatarUrl: null,
-      color: "#22c55e",
-      initials: "SC",
-    },
-    {
-      id: "usr-alex",
-      name: "Alex Mercer",
-      avatarUrl: null,
-      color: "#f59e0b",
-      initials: "AM",
-    },
-  ]);
+  const [viewers, setViewers] = React.useState<PresenceViewer[]>([]);
   const [isConnected, setIsConnected] = React.useState(false);
-  const [lastLiveMessage, setLastLiveMessage] = React.useState<string | null>(null);
+  const [announcement, setAnnouncement] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    const currentViewer: PresenceViewer = {
-      id: currentUser?.id || "anon",
-      name: currentUser?.name || "You",
-      avatarUrl: currentUser?.avatarUrl || null,
-      color: "var(--accent)",
-      initials: (currentUser?.name || "ME").slice(0, 2).toUpperCase(),
+    if (!projectId) return;
+
+    // Keep the latest callbacks without re-connecting on every render
+    const cbRef = {
+      current: { onIssueCreated, onIssueMoved, onIssueUpdated, onIssueDeleted },
+    };
+    cbRef.current = { onIssueCreated, onIssueMoved, onIssueUpdated, onIssueDeleted };
+
+    const viewer: PresenceViewer = {
+      id: currentUser?.id || `anon-${Math.random().toString(36).slice(2)}`,
+      name: currentUser?.name || "Guest",
+      avatarUrl: currentUser?.avatarUrl ?? null,
+      color: PRESENCE_COLORS[0],
+      initials: (currentUser?.name || "?").slice(0, 2).toUpperCase(),
     };
 
-    const socketUrl =
-      typeof window !== "undefined"
-        ? window.location.origin
-        : "http://localhost:3000";
-
-    const s: TypedSocket = io(socketUrl, {
+    const s: TypedSocket = io(window.location.origin, {
       path: "/api/socket",
-      autoConnect: false,
-      reconnectionAttempts: 5,
-      timeout: 3000,
+      autoConnect: true,
+      reconnectionAttempts: 8,
+      reconnectionDelay: 1200,
+      timeout: 4000,
     });
-
     socketRef.current = s;
+
+    const colorFor = (id: string) => {
+      let hash = 0;
+      for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+      return PRESENCE_COLORS[hash % PRESENCE_COLORS.length];
+    };
 
     s.on("connect", () => {
       setIsConnected(true);
-      s.emit("project:join", { projectId, user: currentViewer });
-      if (onRefetchNeeded) {
-        onRefetchNeeded();
-      }
+      s.emit("project:join", { projectId, user: viewer });
     });
 
-    s.on("disconnect", () => {
-      setIsConnected(false);
-    });
+    s.on("disconnect", () => setIsConnected(false));
 
     s.on("presence:update", (data) => {
-      if (data.projectId === projectId) {
-        setViewers(data.viewers);
-      }
+      if (data.projectId !== projectId) return;
+      setViewers(
+        data.viewers.map((v) => ({
+          ...v,
+          color: v.id === viewer.id ? viewer.color : colorFor(v.id),
+        }))
+      );
     });
 
     s.on("issue:created", (data) => {
-      if (data.projectId === projectId && onIssueCreated) {
-        onIssueCreated(data.issue);
-        setLastLiveMessage(`New issue #${data.issue.number} created`);
-      }
+      if (data.projectId !== projectId) return;
+      cbRef.current.onIssueCreated?.(data.issue);
+      setAnnouncement(`New issue ${data.issue.title.slice(0, 40)} created`);
     });
 
     s.on("issue:moved", (data) => {
-      if (data.projectId === projectId && onIssueMoved) {
-        onIssueMoved(data);
-        setLastLiveMessage(`${data.actorName} moved issue to ${data.toStatus}`);
-      }
+      if (data.projectId !== projectId) return;
+      cbRef.current.onIssueMoved?.(data);
+      setAnnouncement(`${data.actorName} moved an issue`);
+    });
+
+    s.on("issue:updated", (data) => {
+      if (data.projectId !== projectId) return;
+      cbRef.current.onIssueUpdated?.();
     });
 
     s.on("issue:deleted", (data) => {
-      if (data.projectId === projectId && onIssueDeleted) {
-        onIssueDeleted(data.issueId);
-      }
+      if (data.projectId !== projectId) return;
+      cbRef.current.onIssueDeleted?.(data.issueId);
     });
 
     return () => {
-      s.emit("project:leave", { projectId, userId: currentViewer.id });
+      s.emit("project:leave", { projectId, userId: viewer.id });
       s.disconnect();
       socketRef.current = null;
     };
-  }, [projectId, currentUser, onIssueCreated, onIssueMoved, onIssueDeleted, onRefetchNeeded]);
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return {
-    viewers,
-    isConnected,
-    lastLiveMessage,
-  };
+  return { viewers, isConnected, announcement };
 }

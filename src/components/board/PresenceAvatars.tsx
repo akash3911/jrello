@@ -2,47 +2,53 @@
 
 import * as React from "react";
 import { Avatar } from "@/components/ui/avatar";
-import { type PresenceViewer } from "@/lib/realtime/events";
+import type { PresenceViewer } from "@/lib/realtime/events";
 
-interface PresenceAvatarsProps {
+export function PresenceAvatars({
+  viewers,
+  liveAnnouncement,
+}: {
   viewers: PresenceViewer[];
   liveAnnouncement?: string | null;
-}
-
-export function PresenceAvatars({ viewers, liveAnnouncement }: PresenceAvatarsProps) {
+}) {
   return (
-    <div className="flex items-center gap-3">
-      {/* Screen-reader announcement of live changes */}
+    <div className="flex items-center gap-2.5">
       <div aria-live="polite" className="sr-only">
         {liveAnnouncement}
       </div>
 
-      {/* Live Badge */}
-      <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border border-[var(--success)]/30 bg-[var(--success-soft)] text-[10px] font-mono-id text-[var(--success-fg)] font-semibold select-none">
-        <span className="h-1.5 w-1.5 rounded-full bg-[var(--success)] animate-pulse" />
-        <span>LIVE ({viewers.length})</span>
-      </div>
-
-      {/* Viewer Avatars Stack */}
-      <div className="flex items-center -space-x-1.5 overflow-hidden">
-        {viewers.map((viewer) => (
-          <div
-            key={viewer.id}
-            title={`${viewer.name} is viewing this board`}
-            className="relative rounded-full ring-2 ring-[var(--bg-base)] transition-transform hover:scale-110 hover:z-10"
+      {viewers.length > 0 && (
+        <>
+          <span
+            title={`${viewers.length} viewing this board`}
+            className="flex select-none items-center gap-1.5 rounded-full border border-[var(--success)]/30 bg-[var(--success-soft)] px-2 py-0.5 font-mono-id text-[10px] font-semibold text-[var(--success-fg)]"
           >
-            <Avatar
-              fallback={viewer.initials}
-              size="xs"
-              className="text-[10px] font-bold"
-              style={{
-                backgroundColor: viewer.color ? `${viewer.color}25` : "var(--accent-soft)",
-                color: viewer.color || "var(--accent)",
-              }}
-            />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--success)]" />
+            {viewers.length} live
+          </span>
+          <div className="flex -space-x-1.5">
+            {viewers.slice(0, 5).map((v) => (
+              <span
+                key={v.id}
+                title={`${v.name} is here`}
+                className="rounded-full ring-2 ring-[var(--bg-base)] transition-transform hover:z-10 hover:scale-110"
+              >
+                <Avatar
+                  src={v.avatarUrl}
+                  fallback={v.initials || v.name.slice(0, 2).toUpperCase()}
+                  size="xs"
+                  className="text-[9px] font-bold"
+                />
+              </span>
+            ))}
+            {viewers.length > 5 && (
+              <span className="flex h-5 w-5 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg-inset)] text-[9px] font-bold text-[var(--text-muted)] ring-2 ring-[var(--bg-base)]">
+                +{viewers.length - 5}
+              </span>
+            )}
           </div>
-        ))}
-      </div>
+        </>
+      )}
     </div>
   );
 }

@@ -1,165 +1,177 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Check } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Plus, X } from "lucide-react";
 import { StatusBadge, type StatusKind } from "@/components/ui/status-badge";
-import { KanbanCard, type KanbanIssueItem } from "./KanbanCard";
+import { KanbanCard, type BoardIssue } from "./KanbanCard";
 import { cn } from "@/lib/utils";
 
 interface KanbanColumnProps {
   id: string;
   name: string;
   kind: StatusKind;
-  issues: KanbanIssueItem[];
+  issues: BoardIssue[];
   focusedIssueId?: string | null;
-  selectedIssueId?: string | null;
-  isDropTarget?: boolean;
-  onSelectIssue: (issue: KanbanIssueItem) => void;
-  onQuickAdd: (statusKind: StatusKind, title: string) => void;
-  onDragStart: (issue: KanbanIssueItem) => void;
-  onDragOver: (e: React.DragEvent) => void;
-  onDragLeave: (e: React.DragEvent) => void;
-  onDrop: (e: React.DragEvent, targetStatus: StatusKind) => void;
+  isDropTarget: boolean;
+  onOpenIssue: (issue: BoardIssue) => void;
+  onQuickAdd: (statusKind: StatusKind, title: string) => Promise<void>;
+  onDragStart: (e: React.DragEvent, issue: BoardIssue) => void;
+  onDragEnd: (e: React.DragEvent) => void;
+  onDragOverColumn: (e: React.DragEvent) => void;
+  onDropInto: (e: React.DragEvent) => void;
+  registerDropRef?: (el: HTMLDivElement | null) => void;
 }
 
 export function KanbanColumn({
+  id,
   name,
   kind,
   issues,
   focusedIssueId,
-  selectedIssueId,
-  isDropTarget = false,
-  onSelectIssue,
+  isDropTarget,
+  onOpenIssue,
   onQuickAdd,
   onDragStart,
-  onDragOver,
-  onDragLeave,
-  onDrop,
+  onDragEnd,
+  onDragOverColumn,
+  onDropInto,
 }: KanbanColumnProps) {
-  const [isComposing, setIsComposing] = React.useState(false);
-  const [newTitle, setNewTitle] = React.useState("");
+  const [composing, setComposing] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const scrollRef = React.useRef<HTMLDivElement>(null);
 
-  const handleCreateSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle.trim()) return;
-    onQuickAdd(kind, newTitle.trim());
-    setNewTitle("");
-    setIsComposing(false);
+  const submit = async () => {
+    const title = draft.trim();
+    if (!title) return;
+    setSaving(true);
+    try {
+      await onQuickAdd(kind, title);
+      setDraft("");
+      setComposing(false);
+    } finally {
+      setSaving(false);
+    }
   };
 
+  // Keep the focused card visible while navigating with J/K
+  React.useEffect(() => {
+    if (!focusedIssueId || !scrollRef.current) return;
+    const el = scrollRef.current.querySelector(`[data-issue-id="${focusedIssueId}"]`);
+    el?.scrollIntoView({ block: "nearest" });
+  }, [focusedIssueId]);
+
   return (
-    <div
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={(e) => onDrop(e, kind)}
+    <section
       className={cn(
-        "flex flex-col rounded-[var(--radius-md)] border min-h-[520px] transition-colors duration-150",
-        "bg-[var(--bg-raised)]/60 border-[var(--border)]",
-        isDropTarget && "border-[var(--accent)] bg-[var(--accent-soft)]/20 ring-1 ring-[var(--accent)]"
+        "flex min-h-0 flex-col rounded-[var(--radius-md)] border transition-colors duration-150",
+        "border-[var(--border)] bg-[var(--bg-raised)]/50",
+        isDropTarget && "border-[var(--accent)] bg-[var(--accent-soft)]/40 ring-1 ring-[var(--accent)]"
       )}
+      data-column-id={id}
+      onDragOver={(e) => onDragOverColumn(e)}
+      onDrop={onDropInto}
     >
-      {/* Column Header */}
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--border)] bg-[var(--bg-raised)] select-none">
-        <div className="flex items-center gap-2">
-          <StatusBadge status={kind} showLabel={false} size="sm" />
-          <span className="text-xs font-semibold text-[var(--text)]">
-            {name}
-          </span>
-          <span className="font-mono-id text-[11px] text-[var(--text-subtle)] px-1.5 py-0.5 rounded bg-[var(--bg-base)] border border-[var(--border)]">
+      {/* Header */}
+      <header className="flex select-none items-center justify-between border-b border-[var(--border)] px-3 py-2.5">
+        <div className="flex items-center gap-1.5">
+          <StatusBadge status={kind} />
+          <span className="rounded border border-[var(--border)] bg-[var(--bg-base)] px-1.5 py-px font-mono-id text-[10px] text-[var(--text-subtle)]">
             {issues.length}
           </span>
         </div>
-
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setIsComposing(true)}
-          className="h-6 w-6 text-[var(--text-subtle)] hover:text-[var(--text)]"
-          title={`Quick add issue to ${name} (C)`}
+        <button
+          onClick={() => setComposing(true)}
+          title={`Quick add to ${name}`}
+          className="rounded p-0.5 text-[var(--text-subtle)] transition-colors hover:bg-[var(--bg-overlay)] hover:text-[var(--text)] focus-ring"
         >
-          <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
-        </Button>
-      </div>
+          <Plus className="h-4 w-4" strokeWidth={1.5} />
+        </button>
+      </header>
 
-      {/* Inline Issue Composer */}
-      {isComposing && (
-        <form onSubmit={handleCreateSubmit} className="p-2 border-b border-[var(--border)] bg-[var(--bg-overlay)] flex flex-col gap-2">
-          <input
-            type="text"
+      {/* Inline composer */}
+      {composing && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+          className="flex flex-col gap-2 border-b border-[var(--border)] bg-[var(--bg-overlay)] p-2"
+        >
+          <textarea
             autoFocus
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
+            rows={2}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void submit();
+              }
               if (e.key === "Escape") {
-                setIsComposing(false);
-                setNewTitle("");
+                setComposing(false);
+                setDraft("");
               }
             }}
-            placeholder="Issue title... (Press Enter to save, Esc to cancel)"
-            className="w-full rounded-[var(--radius-sm)] border border-[var(--accent)] bg-[var(--bg-base)] px-2.5 py-1.5 text-xs text-[var(--text)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+            placeholder={`${name}: issue title…`}
+            className="w-full resize-none rounded-[var(--radius-sm)] border border-[var(--accent)]/50 bg-[var(--bg-base)] px-2.5 py-1.5 text-xs text-[var(--text)] outline-none placeholder:text-[var(--text-subtle)]"
           />
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-[var(--text-subtle)] font-mono-id">
-              Esc to cancel
+            <span className="font-mono-id text-[9px] text-[var(--text-subtle)]">
+              ↵ save · shift+↵ newline · esc cancel
             </span>
-            <div className="flex items-center gap-1.5">
-              <Button
-                variant="ghost"
-                size="sm"
+            <span className="flex gap-1.5">
+              <button
                 type="button"
-                onClick={() => setIsComposing(false)}
-                className="h-6 text-[11px] px-2"
+                onClick={() => {
+                  setComposing(false);
+                  setDraft("");
+                }}
+                className="inline-flex h-6 items-center gap-1 rounded-[var(--radius-sm)] px-2 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-inset)] hover:text-[var(--text)]"
               >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
+                <X className="h-3 w-3" /> Cancel
+              </button>
+              <button
                 type="submit"
-                disabled={!newTitle.trim()}
-                className="h-6 text-[11px] px-2 gap-1"
+                disabled={!draft.trim() || saving}
+                className="inline-flex h-6 items-center rounded-[var(--radius-sm)] bg-[var(--accent)] px-2 text-[11px] font-semibold text-white disabled:opacity-40"
               >
-                <span>Add</span>
-                <Check className="h-3 w-3" />
-              </Button>
-            </div>
+                {saving ? "Adding…" : "Add"}
+              </button>
+            </span>
           </div>
         </form>
       )}
 
-      {/* Cards List / Drop Target Container */}
-      <div className="flex-1 p-2 flex flex-col gap-2 overflow-y-auto">
-        {issues.length === 0 && !isComposing ? (
-          <div className="flex flex-col items-center justify-center py-10 px-4 text-center border border-dashed border-[var(--border)] rounded-[var(--radius-sm)] bg-[var(--bg-base)]/40 my-2">
-            <span className="text-xs font-medium text-[var(--text-muted)]">
-              No issues in {name}
+      {/* Cards */}
+      <div ref={scrollRef} className="flex min-h-[120px] flex-1 flex-col gap-2 overflow-y-auto p-2">
+        {issues.length === 0 && !composing ? (
+          <button
+            onClick={() => setComposing(true)}
+            className="my-2 flex flex-1 flex-col items-center justify-center gap-1 rounded-[var(--radius-sm)] border border-dashed border-[var(--border)] py-8 text-center transition-colors hover:border-[var(--border-strong)]"
+          >
+            <Plus className="h-4 w-4 text-[var(--text-subtle)]" />
+            <span className="text-[11px] font-medium text-[var(--text-muted)]">
+              Nothing in {name}
             </span>
-            <p className="text-[11px] text-[var(--text-subtle)] mt-0.5">
-              Drag cards here or press <kbd className="px-1 py-0.5 rounded border border-[var(--border)] font-mono-id text-[10px]">C</kbd>
-            </p>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsComposing(true)}
-              className="mt-3 text-xs text-[var(--accent)] hover:underline h-7 px-2.5"
-            >
-              + Quick Add
-            </Button>
-          </div>
+            <span className="font-mono-id text-[10px] text-[var(--text-subtle)]">
+              click to add
+            </span>
+          </button>
         ) : (
           issues.map((issue) => (
-            <KanbanCard
-              key={issue.id}
-              issue={issue}
-              isSelected={issue.id === selectedIssueId}
-              isKeyboardFocused={issue.id === focusedIssueId}
-              onClick={() => onSelectIssue(issue)}
-              onDragStart={() => onDragStart(issue)}
-            />
+            <div key={issue.id} data-issue-id={issue.id}>
+              <KanbanCard
+                issue={issue}
+                isFocused={focusedIssueId === issue.id}
+                onOpen={() => onOpenIssue(issue)}
+                onDragStart={(e) => onDragStart(e, issue)}
+                onDragEnd={onDragEnd}
+              />
+            </div>
           ))
         )}
       </div>
-    </div>
+    </section>
   );
 }

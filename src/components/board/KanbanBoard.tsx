@@ -1,421 +1,499 @@
 "use client";
 
 import * as React from "react";
-import { Search, Sparkles, AlertCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Search, Wifi, WifiOff } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { type StatusKind } from "@/components/ui/status-badge";
+import { Avatar } from "@/components/ui/avatar";
 import { KanbanColumn } from "./KanbanColumn";
-import { KanbanIssueItem } from "./KanbanCard";
-import { IssueDetailPanel, type IssueItem } from "./IssueDetailPanel";
+import { IssueDetailPanel } from "./IssueDetailPanel";
 import { PresenceAvatars } from "./PresenceAvatars";
+import { ToastStack, useToasts } from "./Toasts";
 import { useProjectRealtime } from "@/lib/realtime/client";
-
-export interface StatusColumnData {
-  id: string;
-  name: string;
-  kind: StatusKind;
-  position: number;
-  isDefault?: boolean;
-}
+import type { StatusKind } from "@/components/ui/status-badge";
+import { mapIssue } from "@/lib/board-mapper";
+import type { BoardIssue } from "./KanbanCard";
+import type {
+  StatusColumnClient,
+  UserSummary,
+  ProjectMemberClient,
+} from "@/lib/types";
 
 interface KanbanBoardProps {
   projectKey: string;
   projectName: string;
-  projectDescription?: string | null;
+  projectId: string;
+  projectSlug: string;
   workspaceSlug: string;
-  initialStatuses: StatusColumnData[];
-  initialIssues: KanbanIssueItem[];
-  currentUser?: {
-    id: string;
-    name: string | null;
-    avatarUrl?: string | null;
-  } | null;
+  statuses: StatusColumnClient[];
+  initialIssues: BoardIssue[];
+  members: ProjectMemberClient[];
+  currentUser: UserSummary;
 }
 
 export function KanbanBoard({
   projectKey,
   projectName,
-  projectDescription,
+  projectId,
+  projectSlug,
   workspaceSlug,
-  initialStatuses,
+  statuses,
   initialIssues,
+  members,
   currentUser,
 }: KanbanBoardProps) {
-  const [statuses] = React.useState<StatusColumnData[]>(initialStatuses);
-  const [issues, setIssues] = React.useState<KanbanIssueItem[]>(initialIssues);
-  const [selectedIssue, setSelectedIssue] = React.useState<IssueItem | null>(null);
+  const router = useRouter();
+  const { toasts, push } = useToasts();
 
-  // Keyboard navigation & focus state
-  const [focusedColumnIndex, setFocusedColumnIndex] = React.useState<number>(1); // default to Todo
-  const [focusedCardIndex, setFocusedCardIndex] = React.useState<number>(0);
+  const [issues, setIssues] = React.useState<BoardIssue[]>(initialIssues);
+  const [syncedInitial, setSyncedInitial] = React.useState(initialIssues);
+  const [openIssueKey, setOpenIssueKey] = React.useState<string | null>(null);
 
-  // Drag-and-drop state
-  const [draggingIssue, setDraggingIssue] = React.useState<KanbanIssueItem | null>(null);
-  const [dragOverColumn, setDragOverColumn] = React.useState<StatusKind | null>(null);
+  // Re-sync local state when the server sends fresh data (router.refresh)
+  if (syncedInitial !== initialIssues) {
+    setSyncedInitial(initialIssues);
+    setIssues(initialIssues);
+  }
 
-  // Filter toolbar state
+  // Filters
   const [searchQuery, setSearchQuery] = React.useState("");
-  const [priorityFilter, setPriorityFilter] = React.useState<string>("ALL");
-  const [toastMessage, setToastMessage] = React.useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [priorityFilter, setPriorityFilter] = React.useState("ALL");
+  const [assigneeFilter, setAssigneeFilter] = React.useState("ALL");
 
-  const showToast = (text: string, type: "success" | "error" = "success") => {
-    setToastMessage({ text, type });
-    setTimeout(() => setToastMessage(null), 3000);
-  };
+  // DnD
+  const [draggingId, setDraggingId] = React.useState<string | null>(null);
+  const [dropTargetStatus, setDropTargetStatus] = React.useState<string | null>(null);
 
-  // Real-time integration (Socket.IO + Presence)
-  const { viewers, lastLiveMessage } = useProjectRealtime({
-    projectId: projectKey,
-    currentUser,
-    onIssueMoved: (data) => {
-      setIssues((prev) =>
-        prev.map((i) =>
-          i.id === data.issueId ? { ...i, status: data.toStatus, updatedAt: "Just now" } : i
-        )
-      );
-      showToast(`${data.actorName} moved card to ${data.toStatus}`);
+  // Keyboard focus
+  const [focusCol, setFocusCol] = React.useState(0);
+  const [focusRow, setFocusRow] = React.useState(0);
+
+  const filteredIssues = React.useMemo(
+    () =>
+      issues.filter((issue) => {
+        const q = searchQuery.trim().toLowerCase();
+        const matchesSearch =
+          !q ||
+          issue.title.toLowerCase().includes(q) ||
+          issue.key.toLowerCase().includes(q);
+        const matchesPriority =
+          priorityFilter === "ALL" || issue.priority === priorityFilter;
+        const matchesAssignee =
+          assigneeFilter === "ALL" ||
+          (assigneeFilter === "NONE" && !issue.assignee) ||
+          issue.assignee?.id === assigneeFilter;
+        return matchesSearch && matchesPriority && matchesAssignee;
+      }),
+    [issues, searchQuery, priorityFilter, assigneeFilter]
+  );
+
+  const issuesByStatus = React.useMemo(() => {
+    const map = new Map<string, BoardIssue[]>();
+    for (const s of statuses) map.set(s.id, []);
+    for (const i of filteredIssues) {
+      map.get(i.statusId)?.push(i);
+    }
+    return map;
+  }, [filteredIssues, statuses]);
+
+  // ---------- Realtime ----------
+  const applyRemoteMove = React.useCallback(
+    (data: { issueId: string; fromStatus: string; toStatus: string; actorName: string }) => {
+      setIssues((prev) => {
+        const target = statuses.find((s) => s.kind === data.toStatus);
+        if (!target || !prev.some((i) => i.id === data.issueId)) return prev;
+        return prev.map((i) =>
+          i.id === data.issueId
+            ? { ...i, statusId: target.id, statusKind: target.kind }
+            : i
+        );
+      });
+      push(`${data.actorName} moved a card`);
     },
-    onIssueCreated: (newIssue) => {
-      const card: KanbanIssueItem = {
-        id: newIssue.id,
-        key: `${projectKey}-${newIssue.number}`,
-        title: newIssue.title,
-        description: newIssue.description || "",
-        status: newIssue.statusKind,
-        priority: newIssue.priority,
-        assignee: { name: "Team member", initials: "TM" },
-        labels: ["realtime"],
-        branchName: `feat/${projectKey.toLowerCase()}-${newIssue.number}`,
-        commentsCount: 0,
-        createdAt: "Just now",
-        updatedAt: "Just now",
-        estimate: newIssue.estimate ? `${newIssue.estimate} pts` : "3 pts",
-      };
-      setIssues((prev) => [card, ...prev]);
-      showToast(`New issue #${newIssue.number} created`);
+    [statuses, push]
+  );
+
+  const { viewers, isConnected, announcement } = useProjectRealtime({
+    projectId,
+    currentUser,
+    onIssueCreated: (payload) => {
+      const status = statuses.find((s) => s.kind === payload.statusKind);
+      if (!status) return;
+      setIssues((prev) =>
+        prev.some((i) => i.id === payload.id)
+          ? prev
+          : [
+              {
+                id: payload.id,
+                key: `${projectKey}-${payload.number}`,
+                number: payload.number,
+                title: payload.title,
+                description: null,
+                statusId: status.id,
+                statusKind: status.kind,
+                priority: payload.priority as BoardIssue["priority"],
+                sortOrder: payload.sortOrder,
+                estimate: null,
+                assignee: null,
+                labels: [],
+                commentsCount: 0,
+              },
+              ...prev,
+            ]
+      );
+      push(`New issue ${projectKey}-${payload.number} created by a teammate`);
+    },
+    onIssueMoved: applyRemoteMove,
+    onIssueDeleted: (issueId) => {
+      setIssues((prev) => prev.filter((i) => i.id !== issueId));
+    },
+    onIssueUpdated: () => {
+      // Light-touch: refresh server data in background
+      router.refresh();
     },
   });
 
-  // Filtered issues calculation
-  const filteredIssues = React.useMemo(() => {
-    return issues.filter((issue) => {
-      const matchesSearch =
-        issue.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        issue.key.toLowerCase().includes(searchQuery.toLowerCase());
-
-      const matchesPriority =
-        priorityFilter === "ALL" || issue.priority === priorityFilter;
-
-      return matchesSearch && matchesPriority;
-    });
-  }, [issues, searchQuery, priorityFilter]);
-
-  // Derived current column issues for keyboard navigation
-  const currentColumnStatus = statuses[focusedColumnIndex]?.kind;
-  const currentColumnIssues = React.useMemo(() => {
-    return filteredIssues.filter((i) => i.status === currentColumnStatus);
-  }, [filteredIssues, currentColumnStatus]);
-
-  const focusedIssueId = currentColumnIssues[focusedCardIndex]?.id || null;
-
-  // Keyboard navigation handler (J, K, H, L, Left, Right, Enter, C, Escape)
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const activeTag = (document.activeElement?.tagName || "").toLowerCase();
-      if (activeTag === "input" || activeTag === "textarea" || activeTag === "select") {
-        return;
-      }
-
-      if (e.key === "j" || e.key === "J" || e.key === "ArrowDown") {
-        e.preventDefault();
-        setFocusedCardIndex((prev) => Math.min(prev + 1, Math.max(0, currentColumnIssues.length - 1)));
-      } else if (e.key === "k" || e.key === "K" || e.key === "ArrowUp") {
-        e.preventDefault();
-        setFocusedCardIndex((prev) => Math.max(0, prev - 1));
-      } else if (e.key === "h" || e.key === "H" || e.key === "ArrowLeft") {
-        e.preventDefault();
-        setFocusedColumnIndex((prev) => Math.max(0, prev - 1));
-        setFocusedCardIndex(0);
-      } else if (e.key === "l" || e.key === "L" || e.key === "ArrowRight") {
-        e.preventDefault();
-        setFocusedColumnIndex((prev) => Math.min(statuses.length - 1, prev + 1));
-        setFocusedCardIndex(0);
-      } else if (e.key === "Enter" && currentColumnIssues[focusedCardIndex]) {
-        e.preventDefault();
-        const currentItem = currentColumnIssues[focusedCardIndex];
-        setSelectedIssue({
-          id: currentItem.id,
-          key: currentItem.key,
-          title: currentItem.title,
-          description: currentItem.description || "",
-          status: currentItem.status,
-          priority: currentItem.priority,
-          assignee: currentItem.assignee,
-          labels: currentItem.labels || [],
-          branchName: currentItem.branchName,
-          commentsCount: currentItem.commentsCount ?? 0,
-          createdAt: currentItem.createdAt || "Just now",
-          updatedAt: currentItem.updatedAt || "Just now",
-          estimate: currentItem.estimate,
-        });
-      } else if (e.key === "Escape") {
-        setSelectedIssue(null);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [statuses, currentColumnIssues, focusedCardIndex]);
-
-  // Handle Drag & Drop move
-  const handleDragStart = (issue: KanbanIssueItem) => {
-    setDraggingIssue(issue);
-  };
-
-  const handleDragOver = (e: React.DragEvent, statusKind: StatusKind) => {
-    e.preventDefault();
-    if (dragOverColumn !== statusKind) {
-      setDragOverColumn(statusKind);
-    }
-  };
-
-  const handleDrop = async (e: React.DragEvent, targetStatus: StatusKind) => {
-    e.preventDefault();
-    setDragOverColumn(null);
-
-    if (!draggingIssue || draggingIssue.status === targetStatus) {
-      setDraggingIssue(null);
-      return;
-    }
-
-    const previousIssues = [...issues];
-    const movedIssue = { ...draggingIssue, status: targetStatus, updatedAt: "Just now" };
-
-    // 1. Optimistic UI update
-    setIssues((prev) =>
-      prev.map((item) => (item.id === draggingIssue.id ? movedIssue : item))
-    );
-    showToast(`Moved ${draggingIssue.key} to ${targetStatus}`);
-
-    // 2. Persist move to backend API
-    const targetStatusObj = statuses.find((s) => s.kind === targetStatus);
-    const issueNum = draggingIssue.key.split("-")[1];
-
-    if (targetStatusObj && issueNum) {
+  // ---------- Mutations ----------
+  const persistMove = React.useCallback(
+    async (
+      issue: BoardIssue,
+      targetStatus: StatusColumnClient,
+      prevSortOrder?: number,
+      nextSortOrder?: number
+    ) => {
+      const snapshot = issues;
       try {
         const res = await fetch(
-          `/api/v1/workspaces/${workspaceSlug}/projects/${projectKey.toLowerCase()}/issues/${issueNum}/move`,
+          `/api/v1/workspaces/${workspaceSlug}/projects/${projectSlug}/issues/${issue.number}/move`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              targetStatusId: targetStatusObj.id,
+              targetStatusId: targetStatus.id,
+              previousIssueSortOrder: prevSortOrder,
+              nextIssueSortOrder: nextSortOrder,
             }),
           }
         );
-
-        if (!res.ok) {
-          throw new Error("Failed to persist card move");
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        setIssues((prev) =>
+          prev.map((i) => (i.id === issue.id ? { ...i, ...mapIssue(data.issue, projectKey) } : i))
+        );
+        if (issue.statusKind !== targetStatus.kind) {
+          push(`Moved ${issue.key} to ${targetStatus.name}`);
         }
-      } catch (err) {
-        console.error("Card move failed, reverting:", err);
-        // Rollback state on error
-        setIssues(previousIssues);
-        showToast(`Failed to move ${draggingIssue.key}. Reverting.`, "error");
+      } catch {
+        setIssues(snapshot);
+        push(`Failed to move ${issue.key}`, "error");
       }
-    }
+    },
+    [issues, workspaceSlug, projectSlug, projectKey, push]
+  );
 
-    setDraggingIssue(null);
-  };
+  const handleDropIntoColumn = React.useCallback(
+    (targetStatus: StatusColumnClient) => {
+      if (!draggingId) return;
+      const dragged = issues.find((i) => i.id === draggingId);
+      setDraggingId(null);
+      setDropTargetStatus(null);
+      if (!dragged) return;
 
-  // Quick Add issue from column button
-  const handleQuickAdd = async (statusKind: StatusKind, title: string) => {
-    const nextNumber = issues.length + 101;
-    const targetStatusObj = statuses.find((s) => s.kind === statusKind);
-
-    const newCard: KanbanIssueItem = {
-      id: `issue-${nextNumber}`,
-      key: `${projectKey}-${nextNumber}`,
-      title,
-      description: "Created from Kanban board.",
-      status: statusKind,
-      priority: "MEDIUM",
-      assignee: currentUser
-        ? {
-            name: currentUser.name || "You",
-            initials: (currentUser.name || "ME").slice(0, 2).toUpperCase(),
-          }
-        : { name: "Assignee", initials: "ME" },
-      labels: ["feature"],
-      branchName: `feat/${projectKey.toLowerCase()}-${nextNumber}`,
-      commentsCount: 0,
-      createdAt: "Just now",
-      updatedAt: "Just now",
-      estimate: "3 pts",
-    };
-
-    // Optimistic insert
-    setIssues((prev) => [newCard, ...prev]);
-    showToast(`Created ${newCard.key}`);
-
-    // Persist via REST API
-    try {
-      await fetch(
-        `/api/v1/workspaces/${workspaceSlug}/projects/${projectKey.toLowerCase()}/issues`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title,
-            statusId: targetStatusObj?.id,
-            priority: "MEDIUM",
-          }),
-        }
+      const column = (issuesByStatus.get(targetStatus.id) ?? []).filter(
+        (i) => i.id !== draggingId
       );
-    } catch (err) {
-      console.error("Failed to persist new issue:", err);
-    }
-  };
+      void persistMove(dragged, targetStatus);
+      // Note: precise position within column is preserved via column-end drop;
+      // cross-column drops append to the end. Fine-grained insertion below.
+      void column;
+    },
+    [draggingId, issues, issuesByStatus, persistMove]
+  );
+
+  const quickAdd = React.useCallback(
+    async (statusKind: StatusKind, title: string) => {
+      try {
+        const res = await fetch(
+          `/api/v1/workspaces/${workspaceSlug}/projects/${projectSlug}/issues`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title, statusKind, priority: "MEDIUM" }),
+          }
+        );
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        const mapped = mapIssue(data.issue, projectKey);
+        setIssues((prev) => [...prev, mapped]);
+        push(`Created ${mapped.key}`);
+        router.refresh(); // keep sidebar counts honest
+      } catch {
+        push("Failed to create issue", "error");
+      }
+    },
+    [workspaceSlug, projectSlug, projectKey, push, router]
+  );
+
+  const handleDeleteIssue = React.useCallback(
+    (issueId: string) => {
+      setOpenIssueKey(null);
+      setIssues((prev) => prev.filter((i) => i.id !== issueId));
+      router.refresh();
+    },
+    [router]
+  );
+
+  // ---------- Keyboard navigation ----------
+  const flatFocusTargets = React.useMemo(
+    () => statuses.map((s) => issuesByStatus.get(s.id) ?? []),
+    [statuses, issuesByStatus]
+  );
+  const focusedIssueId =
+    flatFocusTargets[focusCol]?.[
+      Math.min(focusRow, Math.max(0, flatFocusTargets[focusCol].length - 1))
+    ]?.id ?? null;
+
+  React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const el = document.activeElement as HTMLElement | null;
+      if (
+        el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.tagName === "SELECT" ||
+          el.isContentEditable)
+      ) {
+        return;
+      }
+      const maxRow = Math.max(0, flatFocusTargets[focusCol]?.length - 1);
+
+      switch (e.key) {
+        case "j":
+        case "J":
+        case "ArrowDown":
+          e.preventDefault();
+          setFocusRow((r) => Math.min(r + 1, maxRow));
+          break;
+        case "k":
+        case "K":
+        case "ArrowUp":
+          e.preventDefault();
+          setFocusRow((r) => Math.max(0, r - 1));
+          break;
+        case "h":
+        case "H":
+        case "ArrowLeft":
+          e.preventDefault();
+          setFocusCol((c) => Math.max(0, c - 1));
+          setFocusRow(0);
+          break;
+        case "l":
+        case "L":
+        case "ArrowRight":
+          e.preventDefault();
+          setFocusCol((c) => Math.min(statuses.length - 1, c + 1));
+          setFocusRow(0);
+          break;
+        case "Enter": {
+          const target = flatFocusTargets[focusCol]?.[Math.min(focusRow, maxRow)];
+          if (target) {
+            e.preventDefault();
+            setOpenIssueKey(target.key);
+          }
+          break;
+        }
+        case "/":
+          e.preventDefault();
+          document.getElementById("board-search")?.focus();
+          break;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [flatFocusTargets, focusCol, focusRow, statuses.length]);
 
   return (
-    <div className="flex h-full flex-col min-w-0 bg-[var(--bg-base)]">
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div
-          className={`fixed bottom-5 right-5 z-50 px-3.5 py-2 rounded-[var(--radius-sm)] text-xs font-medium shadow-[var(--shadow-md)] flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 ${
-            toastMessage.type === "error"
-              ? "bg-[var(--danger-soft)] text-[var(--danger-fg)] border border-[var(--danger)]/40"
-              : "bg-[var(--bg-raised)] text-[var(--text)] border border-[var(--border-strong)]"
-          }`}
-        >
-          {toastMessage.type === "error" ? (
-            <AlertCircle className="h-4 w-4 text-[var(--danger)] shrink-0" />
-          ) : (
-            <Sparkles className="h-4 w-4 text-[var(--accent)] shrink-0" />
-          )}
-          <span>{toastMessage.text}</span>
-        </div>
-      )}
+    <div className="flex h-full min-w-0 flex-col">
+      <ToastStack toasts={toasts} />
 
-      {/* Project Header Bar with Live Presence Avatars */}
-      <div className="flex flex-col gap-3 px-6 py-4 border-b border-[var(--border)] bg-[var(--bg-base)]">
+      {/* Header */}
+      <div className="flex flex-col gap-3 border-b border-[var(--border)] bg-[var(--bg-base)] px-6 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-fg)] font-mono-id font-bold text-sm">
-              {projectKey}
-            </div>
+            <span className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] bg-gradient-to-br from-[var(--accent)] to-[var(--palette-purple)] font-mono-id text-[11px] font-bold text-white shadow-[var(--shadow-xs)]">
+              {projectKey.slice(0, 4)}
+            </span>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-lg font-semibold text-[var(--text)] tracking-tight">
-                  {projectName}
-                </h1>
-                <Badge variant="accent" size="sm">
-                  {projectKey}
-                </Badge>
-              </div>
-              <p className="text-xs text-[var(--text-muted)]">
-                {projectDescription || `Interactive Kanban board in ${workspaceSlug}.`}
+              <h1 className="text-base font-semibold tracking-tight text-[var(--text)]">
+                {projectName}
+              </h1>
+              <p className="font-mono-id text-[11px] text-[var(--text-subtle)]">
+                {filteredIssues.length} of {issues.length} issues ·{" "}
+                {isConnected ? "realtime connected" : "connecting…"}
               </p>
             </div>
           </div>
 
-          {/* Real-time Presence Avatars & Announcements */}
-          <PresenceAvatars viewers={viewers} liveAnnouncement={lastLiveMessage} />
+          <div className="flex items-center gap-3">
+            <PresenceAvatars viewers={viewers} liveAnnouncement={announcement} />
+            {members.length > 0 && (
+              <div className="hidden items-center -space-x-1.5 lg:flex" title={`${members.length} members`}>
+                {members.slice(0, 4).map((m) => (
+                  <Avatar
+                    key={m.id}
+                    src={m.user.avatarUrl}
+                    fallback={(m.user.name ?? m.user.email).slice(0, 2).toUpperCase()}
+                    size="xs"
+                    className="ring-2 ring-[var(--bg-base)]"
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Filters, Search, and Keyboard Shortcuts Hint */}
-        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
-          <div className="flex items-center gap-2 flex-1 max-w-md">
-            <Input
-              leftIcon={<Search className="h-3.5 w-3.5" strokeWidth={1.5} />}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Filter issues (press /)..."
-              className="h-8 text-xs bg-[var(--bg-raised)]"
-            />
-          </div>
+        {/* Filter bar */}
+        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+          <Input
+            id="board-search"
+            leftIcon={<Search className="h-3.5 w-3.5" strokeWidth={1.5} />}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Filter by title or key… (/ to focus)"
+            className="h-8 max-w-xs bg-[var(--bg-raised)]"
+          />
+          <select
+            value={priorityFilter}
+            onChange={(e) => setPriorityFilter(e.target.value)}
+            className="h-8 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-raised)] px-2 text-xs text-[var(--text)] outline-none focus-ring"
+            aria-label="Filter by priority"
+          >
+            <option value="ALL">All priorities</option>
+            <option value="URGENT">Urgent</option>
+            <option value="HIGH">High</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="LOW">Low</option>
+            <option value="NONE">None</option>
+          </select>
+          <select
+            value={assigneeFilter}
+            onChange={(e) => setAssigneeFilter(e.target.value)}
+            className="h-8 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-raised)] px-2 text-xs text-[var(--text)] outline-none focus-ring"
+            aria-label="Filter by assignee"
+          >
+            <option value="ALL">Everyone</option>
+            <option value="NONE">Unassigned</option>
+            {members.map((m) => (
+              <option key={m.id} value={m.user.id}>
+                {m.user.name ?? m.user.email}
+              </option>
+            ))}
+          </select>
 
-          <div className="flex items-center gap-2">
-            <select
-              value={priorityFilter}
-              onChange={(e) => setPriorityFilter(e.target.value)}
-              className="h-8 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-raised)] px-2.5 text-xs text-[var(--text)] focus-ring outline-none"
+          {(searchQuery || priorityFilter !== "ALL" || assigneeFilter !== "ALL") && (
+            <button
+              onClick={() => {
+                setSearchQuery("");
+                setPriorityFilter("ALL");
+                setAssigneeFilter("ALL");
+              }}
+              className="text-[11px] font-medium text-[var(--accent)] hover:underline"
             >
-              <option value="ALL">All Priorities</option>
-              <option value="URGENT">Urgent</option>
-              <option value="HIGH">High</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="LOW">Low</option>
-              <option value="NONE">None</option>
-            </select>
+              Clear filters
+            </button>
+          )}
 
-            <span className="text-xs font-mono-id text-[var(--text-subtle)] pl-1">
-              {filteredIssues.length} issues
-            </span>
-          </div>
+          <span className="ml-auto hidden items-center gap-1.5 font-mono-id text-[10px] text-[var(--text-subtle)] md:flex">
+            {isConnected ? (
+              <>
+                <Wifi className="h-3 w-3 text-[var(--success)]" /> live
+              </>
+            ) : (
+              <>
+                <WifiOff className="h-3 w-3 text-[var(--warning)]" /> offline
+              </>
+            )}
+            <span className="mx-1 opacity-40">|</span>
+            J K H L move · Enter open · C new
+          </span>
         </div>
       </div>
 
-      {/* Board Columns (Horizontal scrolling surface) */}
-      <div className="flex-1 overflow-x-auto p-6 bg-[var(--bg-base)]">
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 min-w-[1100px] items-start pb-6">
-          {statuses.map((st) => {
-            const colIssues = filteredIssues.filter((i) => i.status === st.kind);
-
-            return (
-              <KanbanColumn
-                key={st.id}
-                id={st.id}
-                name={st.name}
-                kind={st.kind}
-                issues={colIssues}
-                focusedIssueId={focusedIssueId}
-                selectedIssueId={selectedIssue?.id}
-                isDropTarget={dragOverColumn === st.kind}
-                onSelectIssue={(issue) => {
-                  setSelectedIssue({
-                    id: issue.id,
-                    key: issue.key,
-                    title: issue.title,
-                    description: issue.description || "",
-                    status: issue.status,
-                    priority: issue.priority,
-                    assignee: issue.assignee,
-                    labels: issue.labels || [],
-                    branchName: issue.branchName,
-                    commentsCount: issue.commentsCount ?? 0,
-                    createdAt: issue.createdAt || "Just now",
-                    updatedAt: issue.updatedAt || "Just now",
-                    estimate: issue.estimate,
-                  });
-                }}
-                onQuickAdd={(kind, title) => handleQuickAdd(kind, title)}
-                onDragStart={handleDragStart}
-                onDragOver={(e) => handleDragOver(e, st.kind)}
-                onDragLeave={() => setDragOverColumn(null)}
-                onDrop={handleDrop}
-              />
-            );
-          })}
+      {/* Columns */}
+      <div className="min-h-0 flex-1 overflow-x-auto p-5">
+        <div className="grid min-w-max grid-flow-col auto-cols-[280px] items-stretch gap-4 pb-4 lg:auto-cols-[minmax(260px,1fr)]">
+          {statuses.map((st) => (
+            <KanbanColumn
+              key={st.id}
+              id={st.id}
+              name={st.name}
+              kind={st.kind}
+              issues={(issuesByStatus.get(st.id) ?? []).slice().sort((a, b) => a.sortOrder - b.sortOrder)}
+              focusedIssueId={focusedIssueId}
+              isDropTarget={dropTargetStatus === st.id}
+              onOpenIssue={(issue) => setOpenIssueKey(issue.key)}
+              onQuickAdd={quickAdd}
+              onDragStart={(_e, issue) => setDraggingId(issue.id)}
+              onDragEnd={() => {
+                setDraggingId(null);
+                setDropTargetStatus(null);
+              }}
+              onDragOverColumn={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                setDropTargetStatus(st.id);
+              }}
+              onDropInto={() => handleDropIntoColumn(st)}
+            />
+          ))}
         </div>
       </div>
 
-      {/* Slide-over Issue Detail Panel */}
+      {/* Detail slide-over */}
       <IssueDetailPanel
-        issue={selectedIssue}
-        onClose={() => setSelectedIssue(null)}
-        onUpdateStatus={(newStatus) => {
-          if (selectedIssue) {
-            setIssues((prev) =>
-              prev.map((item) =>
-                item.id === selectedIssue.id ? { ...item, status: newStatus } : item
-              )
-            );
-            setSelectedIssue((prev) => (prev ? { ...prev, status: newStatus } : null));
-          }
+        issueKey={openIssueKey}
+        workspaceSlug={workspaceSlug}
+        members={members}
+        onClose={() => setOpenIssueKey(null)}
+        onChanged={(patch) => {
+          if (!openIssueKey) return;
+          setIssues((prev) =>
+            prev.map((i) => {
+              if (i.key !== openIssueKey) return i;
+              const next: BoardIssue = { ...i };
+              if (patch.statusKind && patch.statusKind !== i.statusKind) {
+                const target = statuses.find((s) => s.kind === patch.statusKind);
+                if (target) {
+                  next.statusId = target.id;
+                  next.statusKind = target.kind;
+                }
+              }
+              if (patch.priority !== undefined) next.priority = patch.priority;
+              if (patch.estimate !== undefined) next.estimate = patch.estimate;
+              if (patch.assignee !== undefined)
+                next.assignee = patch.assignee
+                  ? {
+                      id: patch.assignee.id,
+                      name: patch.assignee.name,
+                      avatarUrl: patch.assignee.avatarUrl ?? null,
+                    }
+                  : null;
+              if (patch.title !== undefined) next.title = patch.title;
+              if (patch.description !== undefined) next.description = patch.description;
+              if (patch.commentsCountDelta) next.commentsCount += patch.commentsCountDelta;
+              return next;
+            })
+          );
+          router.refresh();
+        }}
+        onDeleted={() => {
+          const issue = issues.find((i) => i.key === openIssueKey);
+          setOpenIssueKey(null);
+          if (issue) handleDeleteIssue(issue.id);
         }}
       />
     </div>
   );
 }
+
+

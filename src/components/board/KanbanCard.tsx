@@ -1,48 +1,46 @@
 "use client";
 
 import * as React from "react";
-import { Badge } from "@/components/ui/badge";
+import { MessageSquare } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { PriorityBadge, type PriorityLevel } from "@/components/ui/priority-badge";
-import { type StatusKind } from "@/components/ui/status-badge";
+import type { StatusKind } from "@/components/ui/status-badge";
 import { cn } from "@/lib/utils";
 
-export interface KanbanIssueItem {
+export interface BoardIssue {
   id: string;
   key: string;
+  number: number;
   title: string;
-  description?: string;
-  status: StatusKind;
+  description: string | null;
+  statusId: string;
+  statusKind: StatusKind;
   priority: PriorityLevel;
+  sortOrder: number;
+  estimate: number | null;
   assignee: {
-    name: string;
-    avatar?: string | null;
-    initials: string;
-  };
-  labels?: string[];
-  branchName?: string;
-  commentsCount?: number;
-  createdAt?: string;
-  updatedAt?: string;
-  estimate?: string;
+    id: string;
+    name: string | null;
+    avatarUrl: string | null;
+  } | null;
+  labels: { label: { id: string; name: string; color: string } }[];
+  commentsCount: number;
 }
 
 interface KanbanCardProps {
-  issue: KanbanIssueItem;
-  isSelected?: boolean;
+  issue: BoardIssue;
+  isFocused?: boolean;
   isDragging?: boolean;
-  isKeyboardFocused?: boolean;
-  onClick?: () => void;
+  onOpen?: () => void;
   onDragStart?: (e: React.DragEvent) => void;
   onDragEnd?: (e: React.DragEvent) => void;
 }
 
 export function KanbanCard({
   issue,
-  isSelected = false,
+  isFocused = false,
   isDragging = false,
-  isKeyboardFocused = false,
-  onClick,
+  onOpen,
   onDragStart,
   onDragEnd,
 }: KanbanCardProps) {
@@ -51,50 +49,84 @@ export function KanbanCard({
       role="button"
       tabIndex={0}
       draggable
-      onClick={onClick}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen?.();
+        }
+      }}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       className={cn(
-        "group relative flex flex-col gap-2 rounded-[var(--radius-sm)] border p-3 text-left transition-all duration-150 select-none cursor-grab active:cursor-grabbing",
-        "bg-[var(--bg-raised)] border-[var(--border)]",
-        "hover:border-[var(--border-strong)] hover:shadow-[var(--shadow-sm)] hover:-translate-y-0.5",
-        isSelected && "border-[var(--accent)] ring-1 ring-[var(--accent)]",
-        isKeyboardFocused && "ring-2 ring-[var(--accent)] border-[var(--accent)] shadow-[0_0_0_2px_var(--accent-soft)]",
-        isDragging && "opacity-40 border-dashed border-[var(--accent)] scale-95"
+        "group relative flex cursor-grab select-none flex-col gap-2 rounded-[var(--radius-md)] border bg-[var(--bg-raised)] p-3 text-left shadow-[var(--shadow-xs)] transition-all duration-150 active:cursor-grabbing",
+        "border-[var(--border)] hover:-translate-y-px hover:border-[var(--border-strong)] hover:shadow-[var(--shadow-sm)]",
+        isFocused && "!border-[var(--accent)] ring-1 ring-[var(--accent)]",
+        isDragging && "scale-95 opacity-40"
       )}
     >
-      {/* Top row: Issue Key & Priority */}
+      {/* Key + priority */}
       <div className="flex items-center justify-between gap-2">
-        <Badge variant="mono" size="sm" className="font-bold text-[11px] group-hover:border-[var(--accent)] transition-colors">
+        <span className="font-mono-id text-[11px] font-bold tracking-tight text-[var(--text-subtle)] transition-colors group-hover:text-[var(--accent)]">
           {issue.key}
-        </Badge>
-        <PriorityBadge priority={issue.priority} showLabel={false} size="sm" />
+        </span>
+        <PriorityBadge priority={issue.priority} />
       </div>
 
       {/* Title */}
-      <h3 className="text-xs font-medium text-[var(--text)] leading-snug line-clamp-2">
+      <h3 className="line-clamp-3 min-h-[2.4em] text-xs font-medium leading-snug text-[var(--text)]">
         {issue.title}
       </h3>
 
-      {/* Footer: Assignee + Estimate */}
-      <div className="flex items-center justify-between pt-1 border-t border-[var(--border)]/40 text-[11px]">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <Avatar
-            fallback={issue.assignee.initials}
-            size="xs"
-            className="bg-[var(--accent-soft)] text-[var(--accent)] font-semibold shrink-0"
-          />
-          <span className="text-[var(--text-muted)] text-[11px] truncate max-w-[100px]">
-            {issue.assignee.name}
-          </span>
+      {/* Footer meta */}
+      <div className="mt-auto flex items-center justify-between pt-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          {issue.assignee ? (
+            <>
+              <Avatar
+                src={issue.assignee.avatarUrl}
+                fallback={(issue.assignee.name ?? "U").slice(0, 2).toUpperCase()}
+                size="xs"
+              />
+              <span className="max-w-24 truncate text-[10px] text-[var(--text-subtle)]">
+                {issue.assignee.name ?? "Member"}
+              </span>
+            </>
+          ) : (
+            <span className="rounded-full border border-dashed border-[var(--border-strong)] px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-[var(--text-subtle)]">
+              unassigned
+            </span>
+          )}
         </div>
 
-        {issue.estimate && (
-          <span className="font-mono-id text-[10px] text-[var(--text-subtle)] font-medium shrink-0">
-            {issue.estimate}
-          </span>
-        )}
+        <div className="flex shrink-0 items-center gap-2 text-[10px] font-mono-id text-[var(--text-subtle)]">
+          {issue.commentsCount > 0 && (
+            <span className="flex items-center gap-0.5">
+              <MessageSquare className="h-3 w-3" strokeWidth={1.5} />
+              {issue.commentsCount}
+            </span>
+          )}
+          {issue.estimate != null && issue.estimate > 0 && (
+            <span>{issue.estimate}</span>
+          )}
+        </div>
       </div>
+
+      {/* Labels strip */}
+      {issue.labels.length > 0 && (
+        <div className="absolute right-2 top-2 hidden gap-1 group-hover:flex">
+          {issue.labels.slice(0, 3).map(({ label }) => (
+            <span
+              key={label.id}
+              title={label.name}
+              className={`h-1.5 w-1.5 rounded-full bg-palette-${label.color}`}
+              style={{
+                backgroundColor: `var(--palette-${label.color})`,
+              }}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
